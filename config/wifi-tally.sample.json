@@ -1,0 +1,31 @@
+{
+  "_warning": "Sample configuration for wifi-vtally-v1.0.0.",
+  "_warning2": "Copy this to wifi-tally.json next to vtally-web.exe only if you want to start from a fixed template.",
+  "mixer": "obs",
+  "atem": {
+    "ip": "127.0.0.1",
+    "port": 9910
+  },
+  "mock": {
+    "channelCount": 8,
+    "channelNames": [],
+    "tickTime": 3000
+  },
+  "null": {},
+  "obs": {
+    "ip": "127.0.0.1",
+    "port": 4455,
+    "password": "",
+    "liveMode": "always"
+  },
+  "test": {
+    "programs": null,
+    "previews": null
+  },
+  "vmix": {
+    "ip": "127.0.0.1",
+    "port": 8099
+  },
+  "tallies": [],
+  "channels": []
+}

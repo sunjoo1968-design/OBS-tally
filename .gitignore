@@ -1,0 +1,10 @@
+*.zip
+release/wifi-tally.json
+release/vtally-web-options.json
+**/node_modules/
+**/build/
+**/dist/
+**/firmware-build/
+**/bin/
+**/obj/
+**/.eslintcache
