@@ -7,16 +7,18 @@ v1.0.0과 기능은 동일하고, 실행 파일 구조만 가볍게 바꾸었습
 
 ## 바로 실행
 
-`release\vtally-web.exe`를 실행하면 됩니다.
+대용량 실행 산출물은 저장소에 직접 포함하지 않고 GitHub Releases에 첨부합니다.
 
-같은 폴더에 `release\vtally-server.exe`와 `release\firmware` 폴더가 있어야 합니다.
+GitHub의 `Releases`에서 `OBS-tally-v1.0.1-runtime.zip`을 내려받아 압축을 푼 뒤 `vtally-web.exe`를 실행하면 됩니다.
+
+같은 폴더에 `vtally-server.exe`와 `firmware` 폴더가 있어야 합니다.
 
 필요 파일:
 
-- `release\vtally-web.exe`
-- `release\vtally-server.exe`
-- `release\firmware\ESP8266_vTally_Listener.bin`
-- `release\firmware\esptool.exe`
+- `vtally-web.exe`
+- `vtally-server.exe`
+- `firmware\ESP8266_vTally_Listener.bin`
+- `firmware\esptool.exe`
 
 Windows 11에서는 별도 Java/Node/.NET 설치 없이 실행되도록 구성했습니다.
 
@@ -79,9 +81,14 @@ dotnet publish tray-launcher\VtallyTray.csproj -c Release -r win-x64 --self-cont
 - 수정된 Hub 소스
 - Windows 트레이 런처 소스
 - ESP8266 리스너 소스
+- 샘플 설정
+- 3D 모델 파일
+
+GitHub Releases로 분리한 것:
+
 - 배포 실행 파일
 - 펌웨어 기록용 bin/esptool
-- 샘플 설정
+- 기타 실행 산출물
 
 제외한 것:
 
