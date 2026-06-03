@@ -1,8 +1,16 @@
-# wifi-vtally-v1.5.0
+# wifi-vtally-v1.5.5
 
 vTally Hub와 ESP8266 탈리 리스너를 함께 정리한 Windows 실행 패키지입니다.
 
 원격 저장소: [sunjoo1968-design/OBS-tally](https://github.com/sunjoo1968-design/OBS-tally)
+
+## v1.5.5 변경 이력
+
+- vMix Mix2 내부 PGM 소스가 Mix2가 메인 PGM/PVW에 없을 때도 tally로 반영되던 문제를 수정했습니다.
+- Mix2 입력 자체가 vMix 메인 PGM에 있을 때만 Mix2 내부 PGM 소스를 적색으로 반영합니다.
+- Mix2 입력 자체가 vMix 메인 PVW에 있을 때는 Mix2 내부 PGM 소스를 녹색으로 반영합니다.
+- Mix2 입력이 메인 PGM/PVW 어디에도 없으면 Mix2 내부 PGM/PVW 소스를 tally 상태에 반영하지 않습니다.
+- 웹 상단 버전 표기를 `V1.5.5`로 갱신했습니다.
 
 ## v1.5.0 변경 이력
 
@@ -90,7 +98,7 @@ copy portable\single-build\vtally-web.exe ..\..\release\vtally-web.exe
 
 ## 검증 기준
 
-v1.5.0 릴리즈 생성 시 확인한 항목:
+v1.5.5 릴리즈 생성 시 확인할 항목:
 
 - `npm run build:backend`
 - `$env:CI='true'; npm test -- --watchAll=false --runInBand VmixConnector`

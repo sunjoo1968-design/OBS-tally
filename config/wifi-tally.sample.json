@@ -1,5 +1,5 @@
 {
-  "_warning": "Sample configuration for wifi-vtally-v1.5.",
+  "_warning": "Sample configuration for wifi-vtally-v1.5.5.",
   "_warning2": "Copy this to wifi-tally.json next to vtally-web.exe only if you want to start from a fixed template.",
   "mixer": "obs",
   "atem": {

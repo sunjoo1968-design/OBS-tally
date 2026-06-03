@@ -6,12 +6,22 @@ and configuration.
 
 [Full documentation at wifi-tally.github.io](https://wifi-tally.github.io/)
 
-## SunjooAN v1.5.0 notes
+## SunjooAN v1.5.5 notes
 
 This repository is maintained as the SunjooAN OBS tally package at
 `sunjoo1968-design/OBS-tally`.
 
-Version 1.5.0 focuses on vMix Mix input responsiveness and Windows packaging:
+Version 1.5.5 refines vMix Mix2 tally behavior:
+
+* Mix2 internal sources are only tallied while the Mix2 input itself is visible
+  on main vMix program or preview.
+* Mix2 on main program maps its internal program source to red.
+* Mix2 on main preview maps its internal program source to green.
+* Mix2 internal preview is only treated as green while Mix2 itself is on main
+  program.
+* The web header shows `made by SunjooAN` and `V1.5.5`.
+
+Version 1.5.0 focused on vMix Mix input responsiveness and Windows packaging:
 
 * vMix Mix input XML polling is reduced to 250ms.
 * vMix `TALLY OK` events trigger an immediate XML refresh with rate limiting.
@@ -52,7 +62,7 @@ Before pushing you should run the tests with
 
     npm run test
 
-For the vMix connector check used in v1.5.0:
+For the vMix connector check used in v1.5.5:
 
     npm run build:backend
     npm test -- --watchAll=false --runInBand VmixConnector

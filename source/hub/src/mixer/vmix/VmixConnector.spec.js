@@ -186,9 +186,25 @@ describe('VmixConnector', () => {
                 await vmix.disconnect()
             }
         })
-        test('parses Mix2 active and preview sources from XML', async () => {
+        test('does not tally Mix2 sources while Mix2 is not visible on main program or preview', async () => {
             const server = global.vMixServerConfig
             server.tallies = "0000"
+            server.xml = '<vmix><version>{version}</version><edition>Trial</edition><inputs><input key="input-1" number="1" type="Camera" title="Cam1" shortTitle="Cam1">Cam1</input><input key="input-2" number="2" type="Camera" title="Cam2" shortTitle="Cam2">Cam2</input><input key="mix-1" number="3" type="Mix" title="Mix1" shortTitle="Mix1">Mix1</input><input key="mix-2" number="4" type="Mix" title="Mix2" shortTitle="Mix2">Mix2</input></inputs><mix number="2"><preview>2</preview><active>1</active></mix></vmix>'
+            const [vmix, communicator] = createVmixCommunicator(server.serverIp, server.serverPort)
+
+            try {
+                vmix.connect()
+                await waitUntil(() => communicator.programs !== undefined).then(() => {
+                    expect(communicator.programs).toEqual([])
+                    expect(communicator.previews).toEqual([])
+                })
+            } finally {
+                await vmix.disconnect()
+            }
+        })
+        test('maps Mix2 program source to red while Mix2 is on main program', async () => {
+            const server = global.vMixServerConfig
+            server.tallies = "0001"
             server.xml = '<vmix><version>{version}</version><edition>Trial</edition><inputs><input key="input-1" number="1" type="Camera" title="Cam1" shortTitle="Cam1">Cam1</input><input key="input-2" number="2" type="Camera" title="Cam2" shortTitle="Cam2">Cam2</input><input key="mix-1" number="3" type="Mix" title="Mix1" shortTitle="Mix1">Mix1</input><input key="mix-2" number="4" type="Mix" title="Mix2" shortTitle="Mix2">Mix2</input></inputs><mix number="2"><preview>2</preview><active>1</active></mix></vmix>'
             const [vmix, communicator] = createVmixCommunicator(server.serverIp, server.serverPort)
 
@@ -199,6 +215,25 @@ describe('VmixConnector', () => {
                     expect(communicator.programs).toContain("vmix-mix-source:4:Cam1")
                     expect(communicator.previews).toContain("vmix-mix-source:4:2")
                     expect(communicator.previews).toContain("vmix-mix-source:4:Cam2")
+                })
+            } finally {
+                await vmix.disconnect()
+            }
+        })
+        test('maps Mix2 program source to green while Mix2 is on main preview', async () => {
+            const server = global.vMixServerConfig
+            server.tallies = "0002"
+            server.xml = '<vmix><version>{version}</version><edition>Trial</edition><inputs><input key="input-1" number="1" type="Camera" title="Cam1" shortTitle="Cam1">Cam1</input><input key="input-2" number="2" type="Camera" title="Cam2" shortTitle="Cam2">Cam2</input><input key="mix-1" number="3" type="Mix" title="Mix1" shortTitle="Mix1">Mix1</input><input key="mix-2" number="4" type="Mix" title="Mix2" shortTitle="Mix2">Mix2</input></inputs><mix number="2"><preview>2</preview><active>1</active></mix></vmix>'
+            const [vmix, communicator] = createVmixCommunicator(server.serverIp, server.serverPort)
+
+            try {
+                vmix.connect()
+                await waitUntil(() => communicator.previews && communicator.previews.includes("vmix-mix-source:4:1")).then(() => {
+                    expect(communicator.programs).toEqual([])
+                    expect(communicator.previews).toContain("vmix-mix-source:4:1")
+                    expect(communicator.previews).toContain("vmix-mix-source:4:Cam1")
+                    expect(communicator.previews).not.toContain("vmix-mix-source:4:2")
+                    expect(communicator.previews).not.toContain("vmix-mix-source:4:Cam2")
                 })
             } finally {
                 await vmix.disconnect()

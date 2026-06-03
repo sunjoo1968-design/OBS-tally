@@ -413,6 +413,24 @@ class VmixConnector implements Connector {
             preview: this.resolveInputRef(this.getFirstValue(mixNode, ["preview"]), names),
         }
     }
+    private addMixSourceRefs(target: string[], mixInputNumber: string, ref?: {id: string, name: string}) {
+        if (!ref) { return }
+
+        target.push(this.createMixSourceChannelId(mixInputNumber, ref.id))
+        target.push(this.createMixSourceChannelId(mixInputNumber, ref.name))
+    }
+    private addVisibleMixTallyState(programs: string[], previews: string[], mixInputNumber: string, refs: {active?: {id: string, name: string}, preview?: {id: string, name: string}}) {
+        const isMixOnProgram = this.tallyPrograms.includes(mixInputNumber)
+        const isMixOnPreview = this.tallyPreviews.includes(mixInputNumber)
+
+        if (isMixOnProgram) {
+            this.addMixSourceRefs(programs, mixInputNumber, refs.active)
+            this.addMixSourceRefs(previews, mixInputNumber, refs.preview)
+        }
+        if (isMixOnPreview) {
+            this.addMixSourceRefs(previews, mixInputNumber, refs.active)
+        }
+    }
 
     private updateMixTallyState(inputs: any[], names: {[inputNumber: string]: string}, mixNodes: any[]) {
         const programs: string[] = []
@@ -427,14 +445,7 @@ class VmixConnector implements Connector {
             mixInputNumbers.add(mixNumber)
 
             const refs = this.getMixInputRefs(input, names)
-            if (refs.active) {
-                programs.push(this.createMixSourceChannelId(mixNumber, refs.active.id))
-                programs.push(this.createMixSourceChannelId(mixNumber, refs.active.name))
-            }
-            if (refs.preview) {
-                previews.push(this.createMixSourceChannelId(mixNumber, refs.preview.id))
-                previews.push(this.createMixSourceChannelId(mixNumber, refs.preview.name))
-            }
+            this.addVisibleMixTallyState(programs, previews, mixNumber, refs)
         })
 
         mixNodes.forEach(mixNode => {
@@ -443,14 +454,7 @@ class VmixConnector implements Connector {
             mixInputNumbers.add(mixInputNumber)
 
             const refs = this.getMixNodeRefs(mixNode, names)
-            if (refs.active) {
-                programs.push(this.createMixSourceChannelId(mixInputNumber, refs.active.id))
-                programs.push(this.createMixSourceChannelId(mixInputNumber, refs.active.name))
-            }
-            if (refs.preview) {
-                previews.push(this.createMixSourceChannelId(mixInputNumber, refs.preview.id))
-                previews.push(this.createMixSourceChannelId(mixInputNumber, refs.preview.name))
-            }
+            this.addVisibleMixTallyState(programs, previews, mixInputNumber, refs)
         })
 
         this.mixInputNumbers = mixInputNumbers

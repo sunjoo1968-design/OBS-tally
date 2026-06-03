@@ -6,15 +6,15 @@ This project is maintained for the SunjooAN portable Windows workflow.
 
 ## Current Version
 
-Current maintained package: `v1.5.0`
+Current maintained package: `v1.5.5`
 
-Version `v1.5.0` improves vMix Mix2 source tally responsiveness, adds web UI version branding, and keeps runtime executable files attached to GitHub Releases instead of storing large build artifacts directly in Git.
+Version `v1.5.5` gates vMix Mix2 internal source tally state by the main vMix PGM/PVW buses, so Mix2 sources only drive tally lights when the Mix2 input itself is visible on main program or preview.
 
 ## Download
 
 Runtime builds are attached to GitHub Releases.
 
-[Download OBS-tally-v1.5.0-runtime.zip](https://github.com/sunjoo1968-design/OBS-tally/releases/download/v1.5.0/OBS-tally-v1.5.0-runtime.zip)
+[Download OBS-tally-v1.5.5-runtime.zip](https://github.com/sunjoo1968-design/OBS-tally/releases/download/v1.5.5/OBS-tally-v1.5.5-runtime.zip)
 
 After downloading:
 
@@ -29,10 +29,17 @@ vtally-web.exe
 firmware/
   ESP8266_vTally_Listener.bin
   esptool.exe
-README_v1.5.0.md
+README_v1.5.5.md
 ```
 
 No Java, Node.js, or .NET runtime installation is required for normal Windows 11 use.
+
+## v1.5.5 Changes
+
+- Mix2 internal PGM/PVW sources no longer affect tally state while the Mix2 input is not visible on main vMix PGM/PVW.
+- If Mix2 is on main PGM, the Mix2 internal PGM source is red and the Mix2 internal PVW source is green.
+- If Mix2 is on main PVW, the Mix2 internal PGM source is green.
+- The web header now shows `V1.5.5`.
 
 ## v1.5.0 Changes
 
@@ -106,7 +113,7 @@ dotnet publish tray-launcher\VtallyTray.csproj -c Release -r win-x64 --self-cont
 
 ## Validation
 
-v1.5.0 was validated with:
+v1.5.5 was validated with:
 
 ```powershell
 npm run build:backend
