@@ -1,10 +1,32 @@
-*.zip
+# dependencies
+node_modules/
+source/hub/node_modules/
+
+# build intermediates
+source/hub/build/
+source/hub/dist/
+source/hub/portable/
+source/hub/tray-launcher/bin/
+source/hub/tray-launcher/obj/
+
+# caches and logs
+.eslintcache
+source/hub/.eslintcache
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# local runtime/debug files
+vmix-mix-debug.json
+vtally-web-options.json
+etc/
+release/*
+!release/
+!release/README_v*.md
+source/hub/firmware/
+source/hub/portable-tools/
+source/ESP8266_vTally_Listener/*.pdf
+
+# generated local config outside the release template
+wifi-tally.json
 release/wifi-tally.json
-release/vtally-web-options.json
-**/node_modules/
-**/build/
-**/dist/
-**/firmware-build/
-**/bin/
-**/obj/
-**/.eslintcache

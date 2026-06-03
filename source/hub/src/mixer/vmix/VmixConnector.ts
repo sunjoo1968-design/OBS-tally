@@ -21,6 +21,10 @@ class VmixConnector implements Connector {
     waitForHelloPeriod: number
     reconnectTimeout?: NodeJS.Timeout
     waitForHelloTimeout?: NodeJS.Timeout
+    private receiveBuffer: string = ""
+    private pendingXmlQueryTimeout?: NodeJS.Timeout
+    private lastXmlQueryAt: number = 0
+    private xmlQueryMinInterval: number
     private tallyPrograms: string[] = []
     private tallyPreviews: string[] = []
     private mixPrograms: string[] = []
@@ -33,7 +37,8 @@ class VmixConnector implements Connector {
         this.communicator = communicator
         this.wasHelloReceived = false
         this.wasSubcribeOkReceived = false
-        this.xmlQueryInterval = 1000
+        this.xmlQueryInterval = 250
+        this.xmlQueryMinInterval = 100
         this.waitForHelloPeriod = 5000
     }
     connect() {
@@ -48,20 +53,14 @@ class VmixConnector implements Connector {
         }
 
         const reconnectClient = () => {
-            this.disconnect().then(() =>
-                this.reconnectTimeout = setTimeout(() => {
-                    if (this.reconnectTimeout) {
-                        clearTimeout(this.reconnectTimeout)
-                    }
-                    client.connect(this.configuration.getPort().toNumber(), this.configuration.getIp().toString())
-                }, 200)
-            )
-        }
+            if (this.reconnectTimeout) { return }
 
-        const queryXml = () => {
-            if(!client.connecting && !client.destroyed) {
-                client.write("XML\r\n")
-            }
+            this.disconnect().then(() => {
+                this.reconnectTimeout = setTimeout(() => {
+                    this.reconnectTimeout = undefined
+                    this.connect()
+                }, 200)
+            })
         }
 
         connectClient()
@@ -83,8 +82,8 @@ class VmixConnector implements Connector {
         client.on("ready", () => {
             client.write("SUBSCRIBE TALLY\r\n")
             // @TODO: we need to poll for new channels or renames. Is there a way to subscribe to those?
-            this.intervalHandle = setInterval(queryXml, this.xmlQueryInterval)
-            queryXml()
+            this.intervalHandle = setInterval(() => this.queryXml(), this.xmlQueryInterval)
+            this.queryXml(true)
         })
 
         client.on("timeout", () => {
@@ -105,6 +104,11 @@ class VmixConnector implements Connector {
                 clearInterval(this.intervalHandle);
                 this.intervalHandle = undefined;
             }
+            if (this.pendingXmlQueryTimeout) {
+                clearTimeout(this.pendingXmlQueryTimeout)
+                this.pendingXmlQueryTimeout = undefined
+            }
+            this.receiveBuffer = ""
 
             if (hadError) {
                 console.debug("Connection to vMix is reconnected after an error")
@@ -117,8 +121,32 @@ class VmixConnector implements Connector {
         console.log("Connection to vMix complete")
         this.communicator.notifyMixerIsConnected()
     }
-    private onData(data: Buffer) {
-        data.toString().replace(/[\r\n]*$/, "").split("\r\n").forEach(command => {
+    private queryXml(immediate: boolean = false) {
+        const client = this.client
+        if (!client || client.connecting || client.destroyed) {
+            return
+        }
+
+        const now = Date.now()
+        const elapsed = now - this.lastXmlQueryAt
+        if (elapsed < this.xmlQueryMinInterval) {
+            if (!this.pendingXmlQueryTimeout) {
+                this.pendingXmlQueryTimeout = setTimeout(() => {
+                    this.pendingXmlQueryTimeout = undefined
+                    this.queryXml(true)
+                }, this.xmlQueryMinInterval - elapsed)
+            }
+            return
+        }
+
+        this.lastXmlQueryAt = now
+        client.write("XML\r\n")
+    }
+    private flushCompleteCommands() {
+        const commands = this.receiveBuffer.split("\r\n")
+        this.receiveBuffer = commands.pop() || ""
+        commands.forEach(command => {
+            if (command === "") { return }
             console.debug(`> ${command}`)
             if (command.startsWith("VERSION OK")) {
                 this.wasHelloReceived = true
@@ -130,6 +158,7 @@ class VmixConnector implements Connector {
                 if (this.wasHelloReceived && this.wasSubcribeOkReceived) { this.onConnectionComplete() }
             } else if (command.startsWith("TALLY OK")) {
                 this.handleTallyCommand(command)
+                this.queryXml(true)
             } else if (command.startsWith("XML ")) {
                 // @TODO: it would be better to detect the "XML" response itself, not the payload
             } else if (command.startsWith("<vmix>")) {  
@@ -138,6 +167,10 @@ class VmixConnector implements Connector {
                 console.debug("Ignoring unkown command from vmix")
             }
         }, this)
+    }
+    private onData(data: Buffer) {
+        this.receiveBuffer += data.toString()
+        this.flushCompleteCommands()
     }
     private handleTallyCommand(command: string) {
         const result = command.match(/^TALLY OK (\d*)$/)
@@ -302,6 +335,8 @@ class VmixConnector implements Connector {
         })
     }
     private writeMixDebug(inputs: any[], names: {[inputNumber: string]: string}, mixNodes: any[]) {
+        if (process.env.VTALLY_VMIX_DEBUG !== "true") { return }
+
         const mixInputs = inputs
             .filter(input => input.$?.type === "Mix")
             .map(input => ({
@@ -439,7 +474,12 @@ class VmixConnector implements Connector {
                 clearTimeout(this.waitForHelloTimeout)
                 this.waitForHelloTimeout = undefined;
             }
+            if (this.pendingXmlQueryTimeout) {
+                clearTimeout(this.pendingXmlQueryTimeout)
+                this.pendingXmlQueryTimeout = undefined
+            }
             if (this.client && ! this.client.destroyed) {
+                const client = this.client
                 // @TODO: check if client is still connected and disconnect gracefully
                 // if (this.client.isConnected) {
                 //     // if we are connected: try to be nice
@@ -449,14 +489,15 @@ class VmixConnector implements Connector {
                 //     })
                 // } else {
                 // if not: be rude
-                this.client.destroy()
-                resolve(null)
+                client.once("close", () => resolve(null))
+                client.destroy()
                 // }
             } else {
                 resolve(null)
             }
         })
         this.client = undefined
+        this.receiveBuffer = ""
         return promise
     }
     isConnected() {

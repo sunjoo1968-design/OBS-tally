@@ -1,5 +1,5 @@
 import React from 'react'
-import { AppBar, Button, Container, makeStyles, Toolbar } from '@material-ui/core'
+import { AppBar, Button, Container, makeStyles, Toolbar, Typography } from '@material-ui/core'
 import { Link as RouterLink, useLocation } from 'react-router-dom'
 
 const useStyles = makeStyles(theme => {
@@ -32,6 +32,25 @@ const useStyles = makeStyles(theme => {
       borderColor: 'rgba(255, 255, 255, 0.55)',
       boxShadow: 'inset 0 -3px 0 rgba(255, 255, 255, 0.72)',
     },
+    toolbar: {
+      display: 'flex',
+      gap: theme.spacing(2),
+      alignItems: 'center',
+      flexWrap: 'wrap',
+    },
+    appMeta: {
+      marginLeft: 'auto',
+      display: 'flex',
+      gap: theme.spacing(1.5),
+      alignItems: 'center',
+      flexWrap: 'wrap',
+      color: 'rgba(255, 255, 255, 0.82)',
+    },
+    appMetaText: {
+      fontSize: '0.75rem',
+      lineHeight: 1.2,
+      whiteSpace: 'nowrap',
+    },
   }
 })
 
@@ -47,12 +66,16 @@ const Layout = ({testId: cypressId, children}: LayoutProps) => {
 
   return (<div data-testid={`page-${cypressId}`}>
     <AppBar position="static">
-      <Toolbar>
+      <Toolbar className={classes.toolbar}>
         <img width="106" height="40" className={classes.logo} src="/logo-with-text.svg" alt="vTally" />
         <div className={classes.nav}>
           <Button className={`${classes.navButton} ${isActive('/') ? classes.activeNavButton : ''}`} component={RouterLink} to="/">Tallies</Button>
           <Button className={`${classes.navButton} ${isActive('/config') ? classes.activeNavButton : ''}`} component={RouterLink} to="/config">Configuration</Button>
           <Button className={`${classes.navButton} ${isActive('/firmware') ? classes.activeNavButton : ''}`} component={RouterLink} to="/firmware">Firmware</Button>
+        </div>
+        <div className={classes.appMeta}>
+          <Typography className={classes.appMetaText} component="span">made by SunjooAN</Typography>
+          <Typography className={classes.appMetaText} component="span">V1.5.0</Typography>
         </div>
       </Toolbar>
     </AppBar>

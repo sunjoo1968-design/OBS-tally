@@ -1,26 +1,34 @@
-# wifi-vtally-v1.0.1
+# wifi-vtally-v1.5.0
 
-vTally Hub와 ESP8266 탈리 리스너를 함께 정리한 v1.0.1 버전입니다.
+vTally Hub와 ESP8266 탈리 리스너를 함께 정리한 Windows 실행 패키지입니다.
 
-v1.0.0과 기능은 동일하고, 실행 파일 구조만 가볍게 바꾸었습니다.
-`vtally-web.exe` 안에 서버를 내장하지 않고 같은 폴더의 `vtally-server.exe`를 실행합니다.
+원격 저장소: [sunjoo1968-design/OBS-tally](https://github.com/sunjoo1968-design/OBS-tally)
+
+## v1.5.0 변경 이력
+
+- vMix 선택 시 Mix2 내부 소스 전환이 탈리 리스너에 늦게 반영되던 문제를 개선했습니다.
+- vMix Mix 입력 상태 XML 조회 주기를 1초에서 250ms로 줄였습니다.
+- vMix `TALLY OK` 이벤트 수신 직후 Mix 입력 상태를 재조회해 반응 시간을 단축했습니다.
+- vMix TCP 응답을 버퍼링해 XML/명령이 조각나 들어와도 완성된 명령 단위로 처리하도록 안정화했습니다.
+- vMix 재연결 시 기존 socket을 재사용하지 않고 새 socket으로 연결해 장애 복구 안정성을 높였습니다.
+- `vmix-mix-debug.json` 파일은 `VTALLY_VMIX_DEBUG=true`일 때만 생성하도록 바꿔 평상시 디스크 I/O를 줄였습니다.
+- 웹 상단에 `made by SunjooAN`과 `V1.5.0` 표기를 추가했습니다.
 
 ## 바로 실행
 
-대용량 실행 산출물은 저장소에 직접 포함하지 않고 GitHub Releases에 첨부합니다.
+`release\vtally-web.exe`를 실행하면 됩니다.
 
-GitHub의 `Releases`에서 `OBS-tally-v1.0.1-runtime.zip`을 내려받아 압축을 푼 뒤 `vtally-web.exe`를 실행하면 됩니다.
-
-같은 폴더에 `vtally-server.exe`와 `firmware` 폴더가 있어야 합니다.
+같은 폴더에 `release\firmware` 폴더가 있어야 웹의 `FIRMWARE` 탭에서 ESP8266 펌웨어 기록 기능을 사용할 수 있습니다.
 
 필요 파일:
 
-- `vtally-web.exe`
-- `vtally-server.exe`
-- `firmware\ESP8266_vTally_Listener.bin`
-- `firmware\esptool.exe`
+- `release\vtally-web.exe`
+- `release\firmware\ESP8266_vTally_Listener.bin`
+- `release\firmware\esptool.exe`
 
 Windows 11에서는 별도 Java/Node/.NET 설치 없이 실행되도록 구성했습니다.
+
+실행 후 브라우저에서 `http://localhost:3000/`으로 접속하면 됩니다.
 
 ## 웹 기능
 
@@ -74,6 +82,21 @@ npx pkg dist/server.js --config .pkgrc.json --targets node18-win-x64 --output po
 dotnet publish tray-launcher\VtallyTray.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:EnableCompressionInSingleFile=true -o portable\single-build
 ```
 
+릴리즈 반영:
+
+```powershell
+copy portable\single-build\vtally-web.exe ..\..\release\vtally-web.exe
+```
+
+## 검증 기준
+
+v1.5.0 릴리즈 생성 시 확인한 항목:
+
+- `npm run build:backend`
+- `$env:CI='true'; npm test -- --watchAll=false --runInBand VmixConnector`
+- `$env:CI='false'; $env:NODE_OPTIONS='--openssl-legacy-provider'; npm run build:frontend`
+- `release\vtally-web.exe` 실행 후 `http://localhost:3000/` 응답 확인
+
 ## 정리 기준
 
 포함한 것:
@@ -81,14 +104,9 @@ dotnet publish tray-launcher\VtallyTray.csproj -c Release -r win-x64 --self-cont
 - 수정된 Hub 소스
 - Windows 트레이 런처 소스
 - ESP8266 리스너 소스
-- 샘플 설정
-- 3D 모델 파일
-
-GitHub Releases로 분리한 것:
-
 - 배포 실행 파일
 - 펌웨어 기록용 bin/esptool
-- 기타 실행 산출물
+- 샘플 설정
 
 제외한 것:
 

@@ -1,20 +1,20 @@
 # OBS Tally / wifi-vtally
 
-This repository contains a customized vTally-based tally system for OBS Studio, vMix, ATEM, and ESP8266-based wireless tally lights.
+Customized vTally-based tally system for OBS Studio, vMix, ATEM, and ESP8266 wireless tally lights.
 
-The project started from the original [wifi-tally](https://github.com/wifi-tally/wifi-tally) codebase and was modified for a practical portable Windows workflow, OBS WebSocket 5.x support, source-based OBS tally matching, vMix Mix support, and ESP8266 firmware flashing from the web UI.
+This project is maintained for the SunjooAN portable Windows workflow.
 
 ## Current Version
 
-Current maintained package: `wifi-vtally-v1.0.1`
+Current maintained package: `v1.5.0`
 
-Version `v1.0.1` keeps the same features as `v1.0.0`, but separates runtime build artifacts from the source repository. Large executable files are published through GitHub Releases instead of being stored directly in Git.
+Version `v1.5.0` improves vMix Mix2 source tally responsiveness, adds web UI version branding, and keeps runtime executable files attached to GitHub Releases instead of storing large build artifacts directly in Git.
 
 ## Download
 
 Runtime builds are attached to GitHub Releases.
 
-[Download OBS-tally-v1.0.1-runtime.zip](https://github.com/sunjoo1968-design/OBS-tally/releases/download/v1.0.1/OBS-tally-v1.0.1-runtime.zip)
+[Download OBS-tally-v1.5.0-runtime.zip](https://github.com/sunjoo1968-design/OBS-tally/releases/download/v1.5.0/OBS-tally-v1.5.0-runtime.zip)
 
 After downloading:
 
@@ -26,15 +26,22 @@ The runtime folder must keep this structure:
 
 ```text
 vtally-web.exe
-vtally-server.exe
 firmware/
   ESP8266_vTally_Listener.bin
   esptool.exe
-  NodeMCU-PyFlasher.exe
-  CP210x_Universal_Windows_Driver.zip
+README_v1.5.0.md
 ```
 
 No Java, Node.js, or .NET runtime installation is required for normal Windows 11 use.
+
+## v1.5.0 Changes
+
+- Reduced vMix Mix input XML polling from 1000ms to 250ms.
+- Triggered a rate-limited XML refresh immediately after vMix `TALLY OK` events.
+- Buffered vMix TCP responses before command parsing so fragmented XML is handled safely.
+- Reconnected vMix with a fresh socket instead of reusing a closed socket.
+- Limited `vmix-mix-debug.json` writes to `VTALLY_VMIX_DEBUG=true`.
+- Added `made by SunjooAN` and `V1.5.0` to the web header.
 
 ## Main Features
 
@@ -43,81 +50,11 @@ No Java, Node.js, or .NET runtime installation is required for normal Windows 11
 - OBS WebSocket 5.x support
 - OBS scene, group, and source-based tally matching
 - Multiple tally match conditions with `AND` / `OR`
-- vMix support including Mix2 and higher internal source tally matching
+- vMix support including Mix2 internal source tally matching
 - ATEM support retained
-- Roland V-8HD / V-60HD code removed from this customized version
-- `Tally Defaults` and old web flash tab removed from the hub UI
 - ESP8266 NodeMCU tally listener firmware
 - ESP8266 firmware flashing from the web `FIRMWARE` tab
 - 3D model files for the tally enclosure
-
-## Web UI Tabs
-
-### TALLIES
-
-Manages tally cards and patching.
-
-For OBS, a tally can be linked to:
-
-- a scene
-- a group
-- a source inside a scene or group
-- multiple source conditions using `AND` or `OR`
-
-### CONFIGURATION
-
-Configures mixer connection settings.
-
-Supported mixer targets in this customized version:
-
-- OBS
-- vMix
-- ATEM
-
-### FIRMWARE
-
-Flashes ESP8266 NodeMCU tally listener firmware without opening the Arduino IDE.
-
-Configurable values:
-
-- COM port
-- WiFi SSID
-- WiFi password
-- setup AP name
-- hub IP
-- hub port
-- tally name
-- front brightness
-- operator brightness
-- idle brightness
-- idle color
-
-Brightness is selected from six preset levels:
-
-```text
-1, 16, 32, 64, 128, 255
-```
-
-## ESP8266 Tally Listener
-
-The included firmware targets a NodeMCU ESP8266 tally listener.
-
-Expected hardware:
-
-- NodeMCU Lua WiFi V3 ESP8266
-- SSD1306 128x64 I2C OLED
-- WS2812 LED ring/bar chain
-- reset/config button on the ESP8266 flash button pin
-
-Implemented listener behavior:
-
-- UDP registration to the hub using `tally-ho "TALLY_NAME"`
-- program tally state
-- preview tally state
-- idle state shown as low-brightness blue on the operator side
-- OLED status display
-- 3-second button hold for WiFi/hub setup portal
-- 10-second button hold for factory reset
 
 ## Repository Layout
 
@@ -127,6 +64,9 @@ Implemented listener behavior:
 
 config/
   wifi-tally.sample.json
+
+release/
+  README files for packaged releases
 
 source/
   ESP8266_vTally_Listener/
@@ -145,7 +85,7 @@ Hub source directory:
 
 ```powershell
 cd source\hub
-npm install
+npm install --legacy-peer-deps
 npm run build:backend
 $env:CI='false'; $env:NODE_OPTIONS='--openssl-legacy-provider'; npm run build:frontend
 ```
@@ -164,9 +104,14 @@ Windows tray launcher:
 dotnet publish tray-launcher\VtallyTray.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:EnableCompressionInSingleFile=true -o portable\single-build
 ```
 
-## Notes About Large Files
+## Validation
 
-Earlier versions stored runtime executables directly in the repository using Git LFS. The current structure keeps the repository source-focused and publishes runtime packages through GitHub Releases.
+v1.5.0 was validated with:
 
-Use the Release zip for normal operation. Use the repository source only when modifying or rebuilding the project.
+```powershell
+npm run build:backend
+$env:CI='true'; npm test -- --watchAll=false --runInBand VmixConnector
+$env:CI='false'; $env:NODE_OPTIONS='--openssl-legacy-provider'; npm run build:frontend
+```
 
+The packaged `release\vtally-web.exe` was also launched and checked at `http://localhost:3000/`.

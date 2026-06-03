@@ -27,6 +27,14 @@ class MockCommunicator {
         this.channelNames = names
     }
 
+    notifyChannels(channels) {
+        this.channelCount = channels.length
+        this.channelNames = channels.reduce((names, channel) => {
+            names[channel.id] = channel.name
+            return names
+        }, {})
+    }
+
     notifyMixerIsConnected() {
         this.isConnected = true
     }
@@ -78,7 +86,7 @@ describe('VmixConnector', () => {
             const promise = new Promise((resolve, reject) => {
                 server.listen({
                     port: 0,
-                    host: 'localhost',
+                    host: '127.0.0.1',
                 }, (error) => {
                     if (error) {
                         console.error(error)
@@ -141,7 +149,7 @@ describe('VmixConnector', () => {
             const [vmix, communicator] = createVmixCommunicator(server.serverIp, server.serverPort)
             try {
                 vmix.connect()
-                await waitUntil(() => communicator.programs !== undefined).then(() => {
+                await waitUntil(() => JSON.stringify(communicator.programs) === JSON.stringify(["2"])).then(() => {
                     expect(communicator.programs).toEqual(["2"])
                     expect(communicator.previews).toEqual(["3"])
                 })
@@ -156,7 +164,7 @@ describe('VmixConnector', () => {
 
             try {
                 vmix.connect()
-                await waitUntil(() => communicator.programs !== undefined).then(() => {
+                await waitUntil(() => JSON.stringify(communicator.programs) === JSON.stringify(["2", "5"])).then(() => {
                     expect(communicator.programs).toEqual(["2", "5"])
                     expect(communicator.previews).toEqual(["3", "4"])
                 })
@@ -173,6 +181,24 @@ describe('VmixConnector', () => {
                 await waitUntil(() => communicator.channelCount !== undefined).then(() => {
                     expect(communicator.channelCount).toEqual(3)
                     expect(communicator.channelNames).toEqual({1: "Foobar", 2: "Tolle rote Farbe", 3: "Colour Bars"})
+                })
+            } finally {
+                await vmix.disconnect()
+            }
+        })
+        test('parses Mix2 active and preview sources from XML', async () => {
+            const server = global.vMixServerConfig
+            server.tallies = "0000"
+            server.xml = '<vmix><version>{version}</version><edition>Trial</edition><inputs><input key="input-1" number="1" type="Camera" title="Cam1" shortTitle="Cam1">Cam1</input><input key="input-2" number="2" type="Camera" title="Cam2" shortTitle="Cam2">Cam2</input><input key="mix-1" number="3" type="Mix" title="Mix1" shortTitle="Mix1">Mix1</input><input key="mix-2" number="4" type="Mix" title="Mix2" shortTitle="Mix2">Mix2</input></inputs><mix number="2"><preview>2</preview><active>1</active></mix></vmix>'
+            const [vmix, communicator] = createVmixCommunicator(server.serverIp, server.serverPort)
+
+            try {
+                vmix.connect()
+                await waitUntil(() => communicator.programs && communicator.programs.includes("vmix-mix-source:4:1")).then(() => {
+                    expect(communicator.programs).toContain("vmix-mix-source:4:1")
+                    expect(communicator.programs).toContain("vmix-mix-source:4:Cam1")
+                    expect(communicator.previews).toContain("vmix-mix-source:4:2")
+                    expect(communicator.previews).toContain("vmix-mix-source:4:Cam2")
                 })
             } finally {
                 await vmix.disconnect()
