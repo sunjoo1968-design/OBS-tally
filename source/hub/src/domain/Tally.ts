@@ -8,6 +8,7 @@ export enum ConnectionState {
 }
 
 const vmixMixSourcePrefix = "vmix-mix-source:"
+const maxLogEntries = 500
 
 type ClientAddress = {
     address: string
@@ -83,6 +84,9 @@ export abstract class Tally {
 
     addLog(log: Log) {
         this.logs.push(log)
+        if (this.logs.length > maxLogEntries) {
+            this.logs.splice(0, this.logs.length - maxLogEntries)
+        }
         return log
     }
     getLogs() {

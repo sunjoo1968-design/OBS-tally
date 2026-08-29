@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Net;
+using System.Reflection;
 using System.Text.Json;
 using System.Threading;
 using System.Windows.Forms;
@@ -61,7 +62,11 @@ internal sealed class TrayContext : ApplicationContext
         settingsPath = Path.Combine(workingDirectory, "vtally-web-options.json");
         settings = TraySettings.Load(settingsPath);
         settings.AutoStartWithWindows = IsAutoStartEnabled();
-        serverPath = Path.Combine(workingDirectory, "vtally-server.exe");
+        serverPath = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "vTally Hub",
+            "vtally-server.exe"
+        );
 
         var menu = new ContextMenuStrip();
         menu.Items.Add("Open vTally Hub", null, (_, _) => Program.OpenBrowser(HubUrl));
@@ -132,6 +137,7 @@ internal sealed class TrayContext : ApplicationContext
         AppDomain.CurrentDomain.ProcessExit += (_, _) => StopServer();
 
         StopExistingBundledServers();
+        ExtractBundledServer();
         EnsureServer();
         if (!settings.StartHiddenToTray)
         {
@@ -196,6 +202,48 @@ internal sealed class TrayContext : ApplicationContext
             autoStartMenuItem.Checked = IsAutoStartEnabled();
             suppressOptionEvents = false;
             trayIcon.ShowBalloonTip(5000, "vTally Hub", "Windows startup option could not be changed.", ToolTipIcon.Error);
+        }
+    }
+
+    private void ExtractBundledServer()
+    {
+        Directory.CreateDirectory(Path.GetDirectoryName(serverPath)!);
+
+        var assembly = Assembly.GetExecutingAssembly();
+        var resourceName = assembly.GetManifestResourceNames()
+            .FirstOrDefault(name => name.EndsWith("vtally-server.exe", StringComparison.OrdinalIgnoreCase));
+
+        if (resourceName == null)
+        {
+            trayIcon.ShowBalloonTip(5000, "vTally Hub", "Bundled server was not found.", ToolTipIcon.Error);
+            return;
+        }
+
+        using var resource = assembly.GetManifestResourceStream(resourceName);
+        if (resource == null)
+        {
+            trayIcon.ShowBalloonTip(5000, "vTally Hub", "Bundled server could not be opened.", ToolTipIcon.Error);
+            return;
+        }
+
+        var tempPath = serverPath + ".tmp";
+        using (var output = File.Create(tempPath))
+        {
+            resource.CopyTo(output);
+        }
+
+        try
+        {
+            if (File.Exists(serverPath))
+            {
+                File.Delete(serverPath);
+            }
+
+            File.Move(tempPath, serverPath);
+        }
+        catch
+        {
+            try { File.Delete(tempPath); } catch { }
         }
     }
 

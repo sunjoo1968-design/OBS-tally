@@ -10,7 +10,9 @@ import Log, { Severity } from '../domain/Log'
 // - handles connections with Tallies.
 // - emits signals when tallies connect, go missing or disconnect
 class UdpTallyDriver {
-    io: dgram.Socket
+    io?: dgram.Socket
+    private isListening: boolean = false
+    private restartTimeout?: NodeJS.Timeout
     container: TallyContainer
     configuration: AppConfiguration
     lastTallyReport: Map<string, Date> = new Map()
@@ -20,42 +22,7 @@ class UdpTallyDriver {
         this.container = container
         this.container.addUdpTallyDriver(this)
 
-        this.io = dgram.createSocket('udp4')
-        
-        this.io.on('error', (err) => {
-            console.log(`server error: ${err.stack}`);
-            this.io.close();
-        });
-        
-        this.io.on('message', (msg, rinfo) => {
-            try {
-                const command = CommandParser.parse(msg.toString().trim())
-                if (command.command === "tally-ho") {
-                    const {tallyName} = command
-                    this.tallyReported(tallyName, rinfo)
-                } else if (command.command === "log") {
-                    const {tallyName, log} = command
-                    this.tallyReported(tallyName, rinfo)
-                    this.container.addLog(tallyName, "udp", log)
-                } else {
-                    // typescript should complain if we missed a command
-                    ((_: never) => {})(command)
-                }
-            } catch (e) {
-                if (e instanceof InvalidCommandError) {
-                    console.warn(e.message)
-                } else {
-                    throw e
-                }
-            }
-        });
-        
-        this.io.on('listening', () => {
-            const address = this.io.address()
-            console.log(`Listening for Tallies on ${address.address}:${address.port}`)
-        });
-        
-        this.io.bind(this.configuration.getTallyPort())
+        this.startSocket()
 
         // check that all tallies are still reporting regularily
         setInterval(() => {
@@ -92,6 +59,63 @@ class UdpTallyDriver {
             })
         }, 1000 / this.configuration.getTallyKeepAlivesPerSecond())
     }
+
+    private startSocket() {
+        const socket = dgram.createSocket('udp4')
+        this.io = socket
+        this.isListening = false
+
+        socket.on('error', err => {
+            console.error(`UDP tally server error: ${err.stack || err.message}`)
+            this.isListening = false
+            try {
+                socket.close()
+            } catch (_) {
+                this.scheduleSocketRestart()
+            }
+        })
+        socket.on('close', () => {
+            this.isListening = false
+            if (this.io === socket) this.scheduleSocketRestart()
+        })
+        socket.on('message', (msg, rinfo) => {
+            try {
+                const command = CommandParser.parse(msg.toString().trim())
+                if (command.command === "tally-ho") {
+                    const {tallyName} = command
+                    this.tallyReported(tallyName, rinfo)
+                } else if (command.command === "log") {
+                    const {tallyName, log} = command
+                    this.tallyReported(tallyName, rinfo)
+                    this.container.addLog(tallyName, "udp", log)
+                } else {
+                    // typescript should complain if we missed a command
+                    ((_: never) => {})(command)
+                }
+            } catch (e) {
+                if (e instanceof InvalidCommandError) {
+                    console.warn(e.message)
+                } else {
+                    console.error(`Failed to process UDP tally message: ${e instanceof Error ? e.message : String(e)}`)
+                }
+            }
+        })
+        socket.on('listening', () => {
+            if (this.io !== socket) return
+            this.isListening = true
+            const address = socket.address()
+            console.log(`Listening for Tallies on ${address.address}:${address.port}`)
+        })
+        socket.bind(this.configuration.getTallyPort())
+    }
+
+    private scheduleSocketRestart() {
+        if (this.restartTimeout) return
+        this.restartTimeout = setTimeout(() => {
+            this.restartTimeout = undefined
+            this.startSocket()
+        }, 2000)
+    }
     private tallyReported(tallyName: string, rinfo: dgram.RemoteInfo) {
         this.lastTallyReport.set(tallyName, new Date())
         let tally = this.container.getOrCreate(tallyName, "udp") as UdpTally
@@ -110,9 +134,11 @@ class UdpTallyDriver {
     }
 
     updateTallyState(tally: UdpTally, programs: ChannelList, previews: ChannelList) {
-        if(tally.isActive()) {
+        if(tally.isActive() && this.io && this.isListening) {
             const command = CommandCreator.createStateCommand(tally, programs, previews, this.configuration.getTallyConfiguration())
-            this.io.send(command, tally.port, tally.address)
+            this.io.send(command, tally.port, tally.address, error => {
+                if (error) console.error(`Failed to send UDP tally state: ${error.message}`)
+            })
         }
     }
 }

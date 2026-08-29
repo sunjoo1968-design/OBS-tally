@@ -3,12 +3,17 @@ import VmixConfiguration from './VmixConfiguration'
 import { Server } from 'net'
 
 const waitUntil = (fn) => {
-    return new Promise((resolve, _) => {
-        setInterval(() => {
+    return new Promise((resolve, reject) => {
+        const startedAt = Date.now()
+        const interval = setInterval(() => {
             if (fn() === true) {
+                clearInterval(interval)
                 resolve()
+            } else if (Date.now() - startedAt > 5000) {
+                clearInterval(interval)
+                reject(new Error('Timed out waiting for vMix test condition'))
             }
-        }, 100)
+        }, 25)
     })
 }
 
@@ -60,9 +65,19 @@ describe('VmixConnector', () => {
             global.vMixServerConfig = {
                 version: "0.1.2.3",
                 tallies: "012",
-                xml: '<vmix><version>{version}</version><edition>Trial</edition><inputs><input key="44bcd391-0f5e-433f-8a45-d5960a973a75" number="1" type="Blank" title="Blank" shortTitle="Blank" state="Paused" position="0" duration="0" loop="False">Blank</input><input key="5c6147a9-398b-4013-969f-6b372b0be254" number="2" type="Blank" title="Blank" shortTitle="Blank" state="Paused" position="0" duration="0" loop="False">Blank</input></inputs><overlays><overlay number="1" /><overlay number="2" /><overlay number="3" /><overlay number="4" /><overlay number="5" /><overlay number="6" /></overlays><preview>1</preview><active>1</active><fadeToBlack>False</fadeToBlack><transitions><transition number="1" effect="VerticalSlide" duration="500" /><transition number="2" effect="Merge" duration="1000" /><transition number="3" effect="Wipe" duration="1000" /><transition number="4" effect="CubeZoom" duration="1000" /></transitions><recording>False</recording><external>False</external><streaming>False</streaming><playList>False</playList><multiCorder>False</multiCorder><fullscreen>False</fullscreen><audio><master volume="100" muted="False" meterF1="0" meterF2="0" headphonesVolume="100" /></audio></vmix>'
+                xml: '<vmix><version>{version}</version><edition>Trial</edition><inputs><input key="44bcd391-0f5e-433f-8a45-d5960a973a75" number="1" type="Blank" title="Blank" shortTitle="Blank" state="Paused" position="0" duration="0" loop="False">Blank</input><input key="5c6147a9-398b-4013-969f-6b372b0be254" number="2" type="Blank" title="Blank" shortTitle="Blank" state="Paused" position="0" duration="0" loop="False">Blank</input></inputs><overlays><overlay number="1" /><overlay number="2" /><overlay number="3" /><overlay number="4" /><overlay number="5" /><overlay number="6" /></overlays><preview>1</preview><active>1</active><fadeToBlack>False</fadeToBlack><transitions><transition number="1" effect="VerticalSlide" duration="500" /><transition number="2" effect="Merge" duration="1000" /><transition number="3" effect="Wipe" duration="1000" /><transition number="4" effect="CubeZoom" duration="1000" /></transitions><recording>False</recording><external>False</external><streaming>False</streaming><playList>False</playList><multiCorder>False</multiCorder><fullscreen>False</fullscreen><audio><master volume="100" muted="False" meterF1="0" meterF2="0" headphonesVolume="100" /></audio></vmix>',
+                connectionCount: 0,
+                clients: [],
             }
             const server = Server((sck) => {
+                global.vMixServerConfig.connectionCount++
+                global.vMixServerConfig.clients.push(sck)
+                sck.on('error', error => {
+                    if (error.code !== 'ECONNRESET') throw error
+                })
+                sck.on('close', () => {
+                    global.vMixServerConfig.clients = global.vMixServerConfig.clients.filter(client => client !== sck)
+                })
                 sck.on('data', data => {
                     data = data.toString()
                     data.toString().replace(/[\r\n]*$/, "").split("\r\n").forEach(command => {
@@ -100,6 +115,9 @@ describe('VmixConnector', () => {
             })
 
             global.vMixServerConfig.close = server.close.bind(server)
+            global.vMixServerConfig.closeClients = () => {
+                global.vMixServerConfig.clients.slice().forEach(client => client.end())
+            }
 
             return promise
         })
@@ -143,6 +161,19 @@ describe('VmixConnector', () => {
                 await vmix.disconnect()
             }
         })
+        test('reconnects after vMix closes the TCP connection cleanly', async () => {
+            const server = global.vMixServerConfig
+            const [vmix, communicator] = createVmixCommunicator(server.serverIp, server.serverPort)
+            try {
+                vmix.connect()
+                await waitUntil(() => communicator.isConnected === true)
+                server.closeClients()
+                await waitUntil(() => server.connectionCount >= 2 && communicator.isConnected === true)
+                expect(server.connectionCount).toBeGreaterThanOrEqual(2)
+            } finally {
+                await vmix.disconnect()
+            }
+        })
         test('parses TALLY OK command', async () => {
             const server = global.vMixServerConfig
             server.tallies = "012"
@@ -182,6 +213,33 @@ describe('VmixConnector', () => {
                     expect(communicator.channelCount).toEqual(3)
                     expect(communicator.channelNames).toEqual({1: "Foobar", 2: "Tolle rote Farbe", 3: "Colour Bars"})
                 })
+            } finally {
+                await vmix.disconnect()
+            }
+        })
+        test('uses actual vMix input numbers when input numbers are not contiguous', async () => {
+            const server = global.vMixServerConfig
+            server.xml = '<vmix><inputs><input number="1" type="Camera" shortTitle="Cam1">Cam1</input><input number="5" type="Camera" shortTitle="Cam5">Cam5</input><input number="8" type="Mix" shortTitle="Mix2">Mix2</input></inputs><mix number="2"><preview>5</preview><active>1</active></mix></vmix>'
+            const [vmix, communicator] = createVmixCommunicator(server.serverIp, server.serverPort)
+            try {
+                vmix.connect()
+                await waitUntil(() => communicator.channelNames && communicator.channelNames[5] === 'Cam5')
+                expect(communicator.channelNames[1]).toBe('Cam1')
+                expect(communicator.channelNames[5]).toBe('Cam5')
+                expect(communicator.channelNames[8]).toBe('Mix2')
+                expect(communicator.channelNames[2]).toBeUndefined()
+            } finally {
+                await vmix.disconnect()
+            }
+        })
+        test('handles an empty vMix input list', async () => {
+            const server = global.vMixServerConfig
+            server.xml = '<vmix><inputs/></vmix>'
+            const [vmix, communicator] = createVmixCommunicator(server.serverIp, server.serverPort)
+            try {
+                vmix.connect()
+                await waitUntil(() => communicator.channelCount === 0)
+                expect(communicator.channelNames).toEqual({})
             } finally {
                 await vmix.disconnect()
             }

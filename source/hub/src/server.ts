@@ -25,6 +25,7 @@ import TestConfiguration from './mixer/test/TestConfiguration'
 import WebTallyDriver from './tally/WebTallyDriver'
 import { TallyConfiguration } from './tally/TallyConfiguration'
 import { flashFirmware, getFirmwareToolStatus, listComPorts } from './lib/FirmwareFlasher'
+import { getHubNetworkInfo } from './lib/NetworkAddresses'
 
 const argv = yargs.argv
 if (argv.env !== undefined) {
@@ -63,6 +64,19 @@ new UdpTallyDriver(myConfiguration, myTallyContainer)
 const myWebTallyDriver = new WebTallyDriver(myConfiguration, myTallyContainer)
 
 const myMixerDriver = new MixerDriver(myConfiguration, myEmitter)
+let isFirmwareFlashInProgress = false
+
+const isLocalRequest = (address?: string) => {
+  return address === '127.0.0.1' || address === '::1' || address === '::ffff:127.0.0.1'
+}
+
+app.use('/api/firmware', (req, res, next) => {
+  if (!isLocalRequest(req.socket.remoteAddress)) {
+    res.status(403).json({ok: false, log: 'Firmware management is available only on the Hub PC.'})
+    return
+  }
+  next()
+})
 
 // log stuff
 myEmitter.on('tally.logged', ({tally, log}) => {
@@ -79,7 +93,25 @@ myEmitter.on('program.changed', ({programs, previews}) => {
 })
 
 app.get('/api/firmware/status', (req, res) => {
-  res.json(getFirmwareToolStatus())
+  const status = getFirmwareToolStatus()
+  res.json({
+    firmwareExists: status.firmwareExists,
+    esptoolExists: status.esptoolExists,
+    targets: {
+      current: {
+        label: status.targets.current.label,
+        firmwareExists: status.targets.current.firmwareExists,
+      },
+      'legacy-nodemcu': {
+        label: status.targets['legacy-nodemcu'].label,
+        baseFirmwareExists: status.targets['legacy-nodemcu'].baseFirmwareExists,
+        programFilesCount: status.targets['legacy-nodemcu'].programFilesCount,
+        programFilesReady: status.targets['legacy-nodemcu'].programFilesReady,
+        missingProgramFiles: status.targets['legacy-nodemcu'].missingProgramFiles,
+      },
+    },
+    network: getHubNetworkInfo(req.socket.localAddress),
+  })
 })
 
 app.get('/api/firmware/ports', async (req, res) => {
@@ -87,6 +119,12 @@ app.get('/api/firmware/ports', async (req, res) => {
 })
 
 app.post('/api/firmware/flash', async (req, res) => {
+  if (isFirmwareFlashInProgress) {
+    res.status(409).json({ok: false, log: 'Another firmware operation is already running.'})
+    return
+  }
+
+  isFirmwareFlashInProgress = true
   try {
     const result = await flashFirmware(req.body)
     res.json(result)
@@ -95,6 +133,8 @@ app.post('/api/firmware/flash', async (req, res) => {
       ok: false,
       log: error instanceof Error ? error.message : String(error),
     })
+  } finally {
+    isFirmwareFlashInProgress = false
   }
 })
 
@@ -173,7 +213,7 @@ io.on('connection', (socket: ServerSideSocket) => {
     socket.emit('config.state.vmix', myConfiguration.getVmixConfiguration().toJson())
     socket.emit('config.state.tallyconfig', myConfiguration.getTallyConfiguration().toJson())
   })
-  socket.on('events.program.unsubscribe', () => {
+  socket.on('events.config.unsubscribe', () => {
     // @TODO: not used yet
     configEvents.forEach(pipe => pipe.unregister())
   })

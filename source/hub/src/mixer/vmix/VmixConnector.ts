@@ -31,6 +31,7 @@ class VmixConnector implements Connector {
     private mixPreviews: string[] = []
     private mixInputNumbers: Set<string> = new Set()
     private inputNames: {[inputNumber: string]: string} = {}
+    private shouldReconnect: boolean = false
 
     constructor(configuration: VmixConfiguration, communicator: MixerCommunicator) {
         this.configuration = configuration
@@ -42,6 +43,7 @@ class VmixConnector implements Connector {
         this.waitForHelloPeriod = 5000
     }
     connect() {
+        this.shouldReconnect = true
         const client = new net.Socket()
         this.client = client
 
@@ -53,14 +55,12 @@ class VmixConnector implements Connector {
         }
 
         const reconnectClient = () => {
-            if (this.reconnectTimeout) { return }
-
-            this.disconnect().then(() => {
-                this.reconnectTimeout = setTimeout(() => {
-                    this.reconnectTimeout = undefined
-                    this.connect()
-                }, 200)
-            })
+            if (!this.shouldReconnect || this.reconnectTimeout) { return }
+            if (!client.destroyed) client.destroy()
+            this.reconnectTimeout = setTimeout(() => {
+                this.reconnectTimeout = undefined
+                if (this.shouldReconnect) this.connect()
+            }, 500)
         }
 
         connectClient()
@@ -108,16 +108,24 @@ class VmixConnector implements Connector {
                 clearTimeout(this.pendingXmlQueryTimeout)
                 this.pendingXmlQueryTimeout = undefined
             }
+            if (this.waitForHelloTimeout) {
+                clearTimeout(this.waitForHelloTimeout)
+                this.waitForHelloTimeout = undefined
+            }
             this.receiveBuffer = ""
 
-            if (hadError) {
-                console.debug("Connection to vMix is reconnected after an error")
+            if (this.shouldReconnect) {
+                console.debug(hadError ? "Reconnecting to vMix after an error" : "Reconnecting to vMix after the connection closed")
                 reconnectClient()
             }
         })
 
     }
     private onConnectionComplete() {
+        if (this.waitForHelloTimeout) {
+            clearTimeout(this.waitForHelloTimeout)
+            this.waitForHelloTimeout = undefined
+        }
         console.log("Connection to vMix complete")
         this.communicator.notifyMixerIsConnected()
     }
@@ -320,9 +328,10 @@ class VmixConnector implements Connector {
                 if(inputs === undefined) {
                     console.log("XML from vMix looks faulty. Could not find inputs.")
                 } else {
-                    const inputList = inputs[0].input
+                    const inputList = inputs[0]?.input || []
                     const names = inputList.reduce((map, input, idx) => {
-                        map[idx+1] = input.$.shortTitle
+                        const inputNumber = input.$?.number?.toString() || (idx + 1).toString()
+                        map[inputNumber] = input.$?.shortTitle || inputNumber
                         return map
                     }, {})
                     this.inputNames = names
@@ -463,6 +472,7 @@ class VmixConnector implements Connector {
         this.notifyProgramPreviewChanged()
     }
     disconnect() {
+        this.shouldReconnect = false
         this.wasHelloReceived = false
         this.wasSubcribeOkReceived = false
         const promise = new Promise(resolve => {
@@ -481,6 +491,10 @@ class VmixConnector implements Connector {
             if (this.pendingXmlQueryTimeout) {
                 clearTimeout(this.pendingXmlQueryTimeout)
                 this.pendingXmlQueryTimeout = undefined
+            }
+            if (this.waitForHelloTimeout) {
+                clearTimeout(this.waitForHelloTimeout)
+                this.waitForHelloTimeout = undefined
             }
             if (this.client && ! this.client.destroyed) {
                 const client = this.client

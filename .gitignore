@@ -20,10 +20,10 @@ yarn-error.log*
 vmix-mix-debug.json
 vtally-web-options.json
 etc/
+old/
 release/*
 !release/
 !release/README_v*.md
-source/hub/firmware/
 source/hub/portable-tools/
 source/ESP8266_vTally_Listener/*.pdf
 

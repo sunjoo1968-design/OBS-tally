@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import {
   Button,
   Card,
@@ -75,11 +75,25 @@ const useStyles = makeStyles(theme => ({
 }))
 
 type FirmwareStatus = {
-  firmwareDir: string
-  firmwarePath: string
-  esptoolPath: string
   firmwareExists: boolean
   esptoolExists: boolean
+  network?: {
+    defaultHubIp: string
+    addresses: string[]
+  }
+  targets?: {
+    current: {
+      label: string
+      firmwareExists: boolean
+    }
+    'legacy-nodemcu': {
+      label: string
+      baseFirmwareExists: boolean
+      programFilesCount: number
+      programFilesReady: boolean
+      missingProgramFiles: string[]
+    }
+  }
 }
 
 const FirmwarePage = () => {
@@ -88,7 +102,10 @@ const FirmwarePage = () => {
   const [ports, setPorts] = useState<string[]>([])
   const [busy, setBusy] = useState(false)
   const [log, setLog] = useState('')
+  const hubIpTouched = useRef(false)
   const [form, setForm] = useState({
+    target: 'current',
+    legacyMode: 'settings-only',
     port: '',
     wifiSsid: '',
     wifiPassword: '',
@@ -96,6 +113,12 @@ const FirmwarePage = () => {
     hubIp: '',
     hubPort: 7411,
     tallyName: 'Cam01',
+    operatorType: 'grb+',
+    operatorWs2812: 5,
+    operatorWs2812Order: 'grb',
+    stageType: 'grb+',
+    stageWs2812: 0,
+    stageWs2812Order: 'grb',
     frontBrightness: 128,
     rearBrightness: 32,
     idleBrightness: 1,
@@ -105,18 +128,26 @@ const FirmwarePage = () => {
   const setField = (key: string, value: any) => setForm(prev => ({...prev, [key]: value}))
 
   const loadStatus = async () => {
-    const [statusResponse, portsResponse] = await Promise.all([
-      fetch('/api/firmware/status'),
-      fetch('/api/firmware/ports'),
-    ])
-    const nextStatus = await statusResponse.json()
-    const portsJson = await portsResponse.json()
-    setStatus(nextStatus)
-    setPorts(portsJson.ports || [])
-    setForm(prev => ({
-      ...prev,
-      port: prev.port || (portsJson.ports || [])[0] || '',
-    }))
+    try {
+      const [statusResponse, portsResponse] = await Promise.all([
+        fetch('/api/firmware/status'),
+        fetch('/api/firmware/ports'),
+      ])
+      if (!statusResponse.ok || !portsResponse.ok) {
+        throw new Error('Could not load firmware tools or COM ports.')
+      }
+      const nextStatus = await statusResponse.json()
+      const portsJson = await portsResponse.json()
+      setStatus(nextStatus)
+      setPorts(portsJson.ports || [])
+      setForm(prev => ({
+        ...prev,
+        port: prev.port || (portsJson.ports || [])[0] || '',
+        hubIp: hubIpTouched.current ? prev.hubIp : (prev.hubIp || nextStatus.network?.defaultHubIp || ''),
+      }))
+    } catch (error) {
+      setLog(error instanceof Error ? error.message : String(error))
+    }
   }
 
   useEffect(() => {
@@ -125,7 +156,7 @@ const FirmwarePage = () => {
 
   const flash = async () => {
     setBusy(true)
-    setLog('Flashing ESP8266...\n')
+    setLog(form.target === 'legacy-nodemcu' ? 'Updating legacy NodeMCU listener...\n' : 'Flashing ESP8266...\n')
     try {
       const response = await fetch('/api/firmware/flash', {
         method: 'POST',
@@ -142,7 +173,13 @@ const FirmwarePage = () => {
     }
   }
 
-  const toolsReady = !!status?.firmwareExists && !!status?.esptoolExists
+  const currentFirmwareReady = status?.targets?.current?.firmwareExists ?? status?.firmwareExists
+  const currentReady = !!currentFirmwareReady && !!status?.esptoolExists
+  const legacyReady = form.legacyMode === 'settings-only'
+    ? true
+    : !!status?.targets?.['legacy-nodemcu']?.baseFirmwareExists && !!status?.targets?.['legacy-nodemcu']?.programFilesReady && !!status?.esptoolExists
+  const toolsReady = form.target === 'legacy-nodemcu' ? legacyReady : currentReady
+  const isLegacy = form.target === 'legacy-nodemcu'
 
   return (
     <Layout testId="firmware">
@@ -154,11 +191,25 @@ const FirmwarePage = () => {
         <Card className={classes.card}>
           <CardContent>
             <div className={classes.status}>
-              <Typography>Firmware file: {status?.firmwareExists ? 'Ready' : 'Missing'}</Typography>
+              <Typography>Current firmware file: {currentFirmwareReady ? 'Ready' : 'Missing'}</Typography>
+              <Typography>Legacy NodeMCU files: {status?.targets?.['legacy-nodemcu']?.programFilesReady ? `${status.targets['legacy-nodemcu'].programFilesCount} files ready` : 'Missing'}</Typography>
               <Typography>esptool: {status?.esptoolExists ? 'Ready' : 'Missing'}</Typography>
-              <Typography variant="caption">Folder: {status?.firmwareDir || 'checking...'}</Typography>
             </div>
             <Grid container spacing={2}>
+              <Grid item xs={12} sm={6} className={classes.row}>
+                <InputLabel>Firmware Target</InputLabel>
+                <NativeSelect fullWidth value={form.target} onChange={event => setField('target', event.target.value as string)}>
+                  <option value="current">Current v1.5.x ESP8266 Listener</option>
+                  <option value="legacy-nodemcu">Legacy NodeMCU Listener</option>
+                </NativeSelect>
+              </Grid>
+              {isLegacy && <Grid item xs={12} sm={6} className={classes.row}>
+                <InputLabel>Legacy Action</InputLabel>
+                <NativeSelect fullWidth value={form.legacyMode} onChange={event => setField('legacyMode', event.target.value as string)}>
+                  <option value="settings-only">Update IP/WiFi settings only</option>
+                  <option value="full-reinstall">Erase and reinstall legacy firmware</option>
+                </NativeSelect>
+              </Grid>}
               <Grid item xs={12} sm={8} className={classes.row}>
                 <InputLabel>COM Port</InputLabel>
                 <NativeSelect fullWidth value={form.port} onChange={event => setField('port', event.target.value as string)}>
@@ -175,46 +226,83 @@ const FirmwarePage = () => {
               <Grid item xs={12} sm={6} className={classes.row}>
                 <TextField fullWidth type="password" label="WiFi Password" value={form.wifiPassword} onChange={event => setField('wifiPassword', event.target.value)} />
               </Grid>
-              <Grid item xs={12} sm={6} className={classes.row}>
+              {!isLegacy && <Grid item xs={12} sm={6} className={classes.row}>
                 <TextField fullWidth label="Setup AP Name" value={form.setupApName} onChange={event => setField('setupApName', event.target.value)} />
-              </Grid>
+              </Grid>}
               <Grid item xs={12} sm={6} className={classes.row}>
                 <TextField fullWidth label="Tally Name" value={form.tallyName} onChange={event => setField('tallyName', event.target.value)} />
               </Grid>
               <Grid item xs={12} sm={8} className={classes.row}>
-                <TextField fullWidth label="Hub IP" value={form.hubIp} onChange={event => setField('hubIp', event.target.value)} />
+                <TextField fullWidth label="Hub IP" value={form.hubIp} onChange={event => {
+                  hubIpTouched.current = true
+                  setField('hubIp', event.target.value)
+                }} />
               </Grid>
               <Grid item xs={12} sm={4} className={classes.row}>
                 <TextField fullWidth type="number" label="Hub Port" value={form.hubPort} onChange={event => setField('hubPort', Number(event.target.value))} />
               </Grid>
-              <Grid item xs={12} sm={4} className={classes.row}>
+              {isLegacy && <Grid item xs={12} sm={4} className={classes.row}>
+                <InputLabel>Operator RGB LED Type</InputLabel>
+                <NativeSelect fullWidth value={form.operatorType} onChange={event => setField('operatorType', event.target.value as string)}>
+                  <option value="grb+">Common Anode (grb+)</option>
+                  <option value="grb-">Common Cathode (grb-)</option>
+                </NativeSelect>
+              </Grid>}
+              {isLegacy && <Grid item xs={12} sm={4} className={classes.row}>
+                <TextField fullWidth type="number" label="Operator WS2812 Count" inputProps={{min: 0, max: 10}} value={form.operatorWs2812} onChange={event => setField('operatorWs2812', Number(event.target.value))} />
+              </Grid>}
+              {isLegacy && <Grid item xs={12} sm={4} className={classes.row}>
+                <InputLabel>Operator WS2812 Color Order</InputLabel>
+                <NativeSelect fullWidth value={form.operatorWs2812Order} onChange={event => setField('operatorWs2812Order', event.target.value as string)}>
+                  <option value="grb">GRB</option>
+                  <option value="rgb">RGB</option>
+                </NativeSelect>
+              </Grid>}
+              {isLegacy && <Grid item xs={12} sm={4} className={classes.row}>
+                <InputLabel>Stage RGB LED Type</InputLabel>
+                <NativeSelect fullWidth value={form.stageType} onChange={event => setField('stageType', event.target.value as string)}>
+                  <option value="grb+">Common Anode (grb+)</option>
+                  <option value="grb-">Common Cathode (grb-)</option>
+                </NativeSelect>
+              </Grid>}
+              {isLegacy && <Grid item xs={12} sm={4} className={classes.row}>
+                <TextField fullWidth type="number" label="Stage WS2812 Count" inputProps={{min: 0, max: 10}} value={form.stageWs2812} onChange={event => setField('stageWs2812', Number(event.target.value))} />
+              </Grid>}
+              {isLegacy && <Grid item xs={12} sm={4} className={classes.row}>
+                <InputLabel>Stage WS2812 Color Order</InputLabel>
+                <NativeSelect fullWidth value={form.stageWs2812Order} onChange={event => setField('stageWs2812Order', event.target.value as string)}>
+                  <option value="grb">GRB</option>
+                  <option value="rgb">RGB</option>
+                </NativeSelect>
+              </Grid>}
+              {!isLegacy && <Grid item xs={12} sm={4} className={classes.row}>
                 <InputLabel>Front Brightness</InputLabel>
                 <NativeSelect fullWidth value={form.frontBrightness} onChange={event => setField('frontBrightness', Number(event.target.value))}>
                   {brightnessLevels.map(item => <option key={item.value} value={item.value}>{item.label}</option>)}
                 </NativeSelect>
-              </Grid>
-              <Grid item xs={12} sm={4} className={classes.row}>
+              </Grid>}
+              {!isLegacy && <Grid item xs={12} sm={4} className={classes.row}>
                 <InputLabel>Operator Brightness</InputLabel>
                 <NativeSelect fullWidth value={form.rearBrightness} onChange={event => setField('rearBrightness', Number(event.target.value))}>
                   {brightnessLevels.map(item => <option key={item.value} value={item.value}>{item.label}</option>)}
                 </NativeSelect>
-              </Grid>
-              <Grid item xs={12} sm={4} className={classes.row}>
+              </Grid>}
+              {!isLegacy && <Grid item xs={12} sm={4} className={classes.row}>
                 <InputLabel>Idle Brightness</InputLabel>
                 <NativeSelect fullWidth value={form.idleBrightness} onChange={event => setField('idleBrightness', Number(event.target.value))}>
                   {brightnessLevels.map(item => <option key={item.value} value={item.value}>{item.label}</option>)}
                 </NativeSelect>
-              </Grid>
-              <Grid item xs={12} sm={4} className={classes.row}>
+              </Grid>}
+              {!isLegacy && <Grid item xs={12} sm={4} className={classes.row}>
                 <InputLabel>Idle Color</InputLabel>
                 <NativeSelect fullWidth value={form.idleColor} onChange={event => setField('idleColor', event.target.value as string)}>
                   {idleColors.map(item => <option key={item.value} value={item.value}>{item.label}</option>)}
                 </NativeSelect>
-              </Grid>
+              </Grid>}
             </Grid>
             <div className={classes.actions}>
               <Button variant="contained" color="primary" disabled={busy || !toolsReady || !form.port} onClick={flash}>
-                Erase & Flash
+                {isLegacy && form.legacyMode === 'settings-only' ? 'Update Legacy Settings' : 'Erase & Flash'}
               </Button>
               {busy && <CircularProgress size={24} />}
             </div>

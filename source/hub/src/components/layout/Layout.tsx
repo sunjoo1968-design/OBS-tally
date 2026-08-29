@@ -75,7 +75,7 @@ const Layout = ({testId: cypressId, children}: LayoutProps) => {
         </div>
         <div className={classes.appMeta}>
           <Typography className={classes.appMetaText} component="span">made by SunjooAN</Typography>
-          <Typography className={classes.appMetaText} component="span">V1.5.5</Typography>
+          <Typography className={classes.appMetaText} component="span">V1.5.6</Typography>
         </div>
       </Toolbar>
     </AppBar>

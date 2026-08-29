@@ -1,0 +1,8 @@
+{
+  "assets": [
+    "dist/frontend/**/*"
+  ],
+  "scripts": [
+    "dist/**/*.js"
+  ]
+}

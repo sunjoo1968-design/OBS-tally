@@ -6,15 +6,15 @@ This project is maintained for the SunjooAN portable Windows workflow.
 
 ## Current Version
 
-Current maintained package: `v1.5.5`
+Current maintained package: `v1.5.6`
 
-Version `v1.5.5` gates vMix Mix2 internal source tally state by the main vMix PGM/PVW buses, so Mix2 sources only drive tally lights when the Mix2 input itself is visible on main program or preview.
+Version `v1.5.6` keeps the v1.5.5 vMix Mix2 tally behavior and adds a separate legacy NodeMCU listener flashing/settings workflow.
 
 ## Download
 
 Runtime builds are attached to GitHub Releases.
 
-[Download OBS-tally-v1.5.5-runtime.zip](https://github.com/sunjoo1968-design/OBS-tally/releases/download/v1.5.5/OBS-tally-v1.5.5-runtime.zip)
+[Download OBS-tally-v1.5.6-runtime.zip](https://github.com/sunjoo1968-design/OBS-tally/releases/download/v1.5.6/OBS-tally-v1.5.6-runtime.zip)
 
 After downloading:
 
@@ -29,10 +29,25 @@ vtally-web.exe
 firmware/
   ESP8266_vTally_Listener.bin
   esptool.exe
-README_v1.5.5.md
+  legacy-nodemcu/
+    nodemcu-3.0-master_20200610-cfe68233-float.bin
+    *.lc
+    init.lua
+README_v1.5.6.md
 ```
 
 No Java, Node.js, or .NET runtime installation is required for normal Windows 11 use.
+
+## v1.5.6 Changes
+
+- Added a `Firmware Target` selector for current v1.5.x ESP8266 listeners and legacy NodeMCU listeners.
+- Legacy NodeMCU listeners can update only `tally-settings.ini` when Hub IP or WiFi settings change.
+- Legacy NodeMCU listeners can also be fully reinstalled with the NodeMCU base firmware and Lua/LC program files.
+- The firmware page automatically fills the Hub PC's preferred LAN IPv4 address and still allows manual editing.
+- Firmware management APIs are restricted to the Hub PC, and concurrent flash requests are rejected.
+- Improved vMix reconnect handling, non-contiguous input numbering, empty input handling, UDP recovery, and long-running log memory use.
+- The current v1.5.x listener firmware path remains the default.
+- The web header now shows `V1.5.6`.
 
 ## v1.5.5 Changes
 
@@ -61,6 +76,7 @@ No Java, Node.js, or .NET runtime installation is required for normal Windows 11
 - ATEM support retained
 - ESP8266 NodeMCU tally listener firmware
 - ESP8266 firmware flashing from the web `FIRMWARE` tab
+- Legacy NodeMCU listener settings upload and full reinstall from the web `FIRMWARE` tab
 - 3D model files for the tally enclosure
 
 ## Repository Layout
@@ -79,12 +95,15 @@ source/
   ESP8266_vTally_Listener/
     Arduino ESP8266 listener source
 
+  Legacy_NodeMCU_Listener/
+    legacy NodeMCU listener firmware, Lua/LC files, upstream source, and tests
+
   hub/
     customized vTally hub source
     Windows tray launcher source
 ```
 
-Large runtime artifacts are intentionally not stored directly in the repository. They are attached to GitHub Releases.
+Runtime executables are attached to GitHub Releases. Firmware assets required for reproducible packaging are stored with Git LFS.
 
 ## Build Notes
 
@@ -98,6 +117,11 @@ $env:CI='false'; $env:NODE_OPTIONS='--openssl-legacy-provider'; npm run build:fr
 ```
 
 After building the frontend, copy the React `build` output into `dist\frontend` before packaging the server.
+
+```powershell
+New-Item -ItemType Directory -Force dist\frontend
+Copy-Item build\* dist\frontend -Recurse -Force
+```
 
 Server executable:
 
@@ -113,7 +137,7 @@ dotnet publish tray-launcher\VtallyTray.csproj -c Release -r win-x64 --self-cont
 
 ## Validation
 
-v1.5.5 was validated with:
+v1.5.6 was validated with:
 
 ```powershell
 npm run build:backend
@@ -122,3 +146,7 @@ $env:CI='false'; $env:NODE_OPTIONS='--openssl-legacy-provider'; npm run build:fr
 ```
 
 The packaged `release\vtally-web.exe` was also launched and checked at `http://localhost:3000/`.
+
+## License and upstream
+
+This project is based on the MIT-licensed `wifi-tally` project by dev at xopn.de. The original copyright and license are preserved in [LICENSE](LICENSE). Legacy upstream Lua source and tests are retained under `source/Legacy_NodeMCU_Listener/upstream-source`.

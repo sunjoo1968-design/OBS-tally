@@ -9,4 +9,7 @@
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <ApplicationIcon>app.ico</ApplicationIcon>
   </PropertyGroup>
+  <ItemGroup>
+    <EmbeddedResource Include="..\portable\vtally-server.exe" Link="vtally-server.exe" />
+  </ItemGroup>
 </Project>

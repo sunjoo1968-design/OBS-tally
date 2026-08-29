@@ -6,10 +6,23 @@ and configuration.
 
 [Full documentation at wifi-tally.github.io](https://wifi-tally.github.io/)
 
-## SunjooAN v1.5.5 notes
+## SunjooAN v1.5.6 notes
 
 This repository is maintained as the SunjooAN OBS tally package at
 `sunjoo1968-design/OBS-tally`.
+
+Version 1.5.6 adds legacy NodeMCU listener support without changing the current
+v1.5.x ESP8266 listener firmware:
+
+* The firmware page can target either the current v1.5.x listener or the legacy
+  NodeMCU listener.
+* Legacy NodeMCU listeners can update only `tally-settings.ini` for Hub IP/WiFi
+  changes.
+* Legacy NodeMCU listeners can also be fully reinstalled with the NodeMCU base
+  firmware and Lua/LC program files.
+* The web header shows `made by SunjooAN` and `V1.5.6`.
+
+## SunjooAN v1.5.5 notes
 
 Version 1.5.5 refines vMix Mix2 tally behavior:
 
@@ -62,7 +75,7 @@ Before pushing you should run the tests with
 
     npm run test
 
-For the vMix connector check used in v1.5.5:
+For the connector and firmware checks used in v1.5.6:
 
     npm run build:backend
     npm test -- --watchAll=false --runInBand VmixConnector

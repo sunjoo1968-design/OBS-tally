@@ -63,7 +63,7 @@ class TallyContainer {
     this.emitter.emit('tally.changed', tally)
 
     const newConfigAsJson = this.get(tally.name, tally.type)?.toJsonForSave()
-    if (oldConfigAsJson !== newConfigAsJson) {
+    if (JSON.stringify(oldConfigAsJson) !== JSON.stringify(newConfigAsJson)) {
       this.configuration.setTallies(Array.from(this.tallies.values()))
     }
   }
