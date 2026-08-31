@@ -136,18 +136,26 @@ class ObsConnector implements Connector{
         })
     }
     private updateOutputStates() {
-        this.obs?.call("GetStreamStatus").then(data => {
-            this.isStreaming = data.outputActive
-            this.notifyChanged()
-        }).catch(err => {
-            console.error(err)
-        })
-        this.obs?.call("GetRecordStatus").then(data => {
-            this.isRecording = data.outputActive && !data.outputPaused
-            this.notifyChanged()
-        }).catch(err => {
-            console.error(err)
-        })
+        const liveMode = this.configuration.getLiveMode()
+
+        // OBS handles both requests through GetOutputStatus. Avoid touching the
+        // output/FFmpeg state when the selected tally mode does not need it.
+        if (liveMode === "stream" || liveMode === "streamOrRecord") {
+            this.obs?.call("GetStreamStatus").then(data => {
+                this.isStreaming = data.outputActive
+                this.notifyChanged()
+            }).catch(err => {
+                console.error(err)
+            })
+        }
+        if (liveMode === "record" || liveMode === "streamOrRecord") {
+            this.obs?.call("GetRecordStatus").then(data => {
+                this.isRecording = data.outputActive && !data.outputPaused
+                this.notifyChanged()
+            }).catch(err => {
+                console.error(err)
+            })
+        }
     }
     private updateScenes() {
         this.obs?.call("GetSceneList").then(async data => {
