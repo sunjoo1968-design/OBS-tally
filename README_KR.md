@@ -1,8 +1,16 @@
-# wifi-vtally-v1.5.6
+# wifi-vtally-v1.5.7
 
 vTally Hub와 ESP8266 탈리 리스너를 함께 정리한 Windows 실행 패키지입니다.
 
 원격 저장소: [sunjoo1968-design/OBS-tally](https://github.com/sunjoo1968-design/OBS-tally)
+
+## v1.5.7 변경 이력
+
+- 리스너 채널 지정 후 `channelIds`와 `channelMatchMode`가 설정 파일에 저장되지 않던 문제를 수정했습니다.
+- Hub 또는 PC 재시작 후에도 지정한 리스너 채널이 복원됩니다.
+- 같은 객체 갱신 경로를 사용하던 개별 리스너 설정도 안정적으로 저장되도록 수정했습니다.
+- 채널 및 리스너 설정 변경 시 실제 저장 이벤트가 발생하는지 확인하는 회귀 테스트를 추가했습니다.
+- 웹 상단 버전 표기를 `V1.5.7`로 갱신했습니다.
 
 ## v1.5.6 변경 이력
 
@@ -119,10 +127,10 @@ copy portable\single-build\vtally-web.exe ..\..\release\vtally-web.exe
 
 ## 검증 기준
 
-v1.5.6 릴리즈 생성 시 확인할 항목:
+v1.5.7 릴리즈 생성 시 확인할 항목:
 
 - `npm run build:backend`
-- `$env:CI='true'; npm test -- --watchAll=false --runInBand VmixConnector`
+- `$env:CI='true'; npm test -- --watchAll=false --runInBand TallyContainer VmixConnector`
 - `$env:CI='false'; $env:NODE_OPTIONS='--openssl-legacy-provider'; npm run build:frontend`
 - `release\vtally-web.exe` 실행 후 `http://localhost:3000/` 응답 확인
 

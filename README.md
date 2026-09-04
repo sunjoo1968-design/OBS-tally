@@ -6,15 +6,15 @@ This project is maintained for the SunjooAN portable Windows workflow.
 
 ## Current Version
 
-Current maintained package: `v1.5.6`
+Current maintained package: `v1.5.7`
 
-Version `v1.5.6` keeps the v1.5.5 vMix Mix2 tally behavior and adds a separate legacy NodeMCU listener flashing/settings workflow.
+Version `v1.5.7` persists listener channel assignments reliably across Hub and PC restarts while retaining all v1.5.6 behavior.
 
 ## Download
 
 Runtime builds are attached to GitHub Releases.
 
-[Download OBS-tally-v1.5.6-runtime.zip](https://github.com/sunjoo1968-design/OBS-tally/releases/download/v1.5.6/OBS-tally-v1.5.6-runtime.zip)
+[Download OBS-tally-v1.5.7-runtime.zip](https://github.com/sunjoo1968-design/OBS-tally/releases/download/v1.5.7/OBS-tally-v1.5.7-runtime.zip)
 
 After downloading:
 
@@ -33,10 +33,17 @@ firmware/
     nodemcu-3.0-master_20200610-cfe68233-float.bin
     *.lc
     init.lua
-README_v1.5.6.md
+README_v1.5.7.md
 ```
 
 No Java, Node.js, or .NET runtime installation is required for normal Windows 11 use.
+
+## v1.5.7 Changes
+
+- Fixed listener `channelIds` and `channelMatchMode` not being written to the configuration file after channel assignment.
+- Fixed individual listener settings using the same in-place update path so they are persisted reliably.
+- Added regression tests that require a configuration change event for channel and listener-setting updates.
+- The web header now shows `V1.5.7`.
 
 ## v1.5.6 Changes
 
@@ -137,11 +144,11 @@ dotnet publish tray-launcher\VtallyTray.csproj -c Release -r win-x64 --self-cont
 
 ## Validation
 
-v1.5.6 was validated with:
+v1.5.7 was validated with:
 
 ```powershell
 npm run build:backend
-$env:CI='true'; npm test -- --watchAll=false --runInBand VmixConnector
+$env:CI='true'; npm test -- --watchAll=false --runInBand TallyContainer VmixConnector
 $env:CI='false'; $env:NODE_OPTIONS='--openssl-legacy-provider'; npm run build:frontend
 ```
 

@@ -47,10 +47,8 @@ class WebTallyDriver {
     }
 
     create(tallyName: string, channelId: string) {
-      const tally = this.container.getOrCreate(tallyName, "web") as WebTally
-      tally.name = tallyName
-      tally.setPatchChannels(channelId ? [channelId] : [], "or")
-      this.container.update(tally)
+      this.container.getOrCreate(tallyName, "web")
+      this.container.patch(tallyName, "web", channelId || null)
     }
     unsubscribe(tallyName: string, socket: ServerSideSocket) {
       const oldSockets = this.sockets.get(tallyName) || []

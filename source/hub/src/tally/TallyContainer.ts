@@ -56,8 +56,8 @@ class TallyContainer {
     return tally
   }
 
-  private setAndAnnounceTally(tally: Tally) {
-    const oldConfigAsJson = this.get(tally.name, tally.type)?.toJsonForSave()
+  private setAndAnnounceTally(tally: Tally, previousConfigAsJson?: object) {
+    const oldConfigAsJson = previousConfigAsJson || this.get(tally.name, tally.type)?.toJsonForSave()
     this.set(tally)
     this.updateTallyState(tally)
     this.emitter.emit('tally.changed', tally)
@@ -106,8 +106,10 @@ class TallyContainer {
   updateSettings(tallyName: string, tallyType: TallyType, settings: TallyConfiguration) {
     let tally = this.get(tallyName, tallyType)
     if (tally) {
+      const previousConfigAsJson = tally.toJsonForSave()
       tally.configuration = settings
-      this.update(tally)
+      this.setAndAnnounceTally(tally, previousConfigAsJson)
+      console.debug(`Tally "${tally.name}" settings updated`)
     } else {
       console.warn(`Can not update settings for unknown tally named "${tallyName}"`)
     }
@@ -141,8 +143,9 @@ class TallyContainer {
   patch(tallyName: string, tallyType: TallyType, channelId: string|null) {
       const tally = this.get(tallyName, tallyType)
       if (tally) {
+          const previousConfigAsJson = tally.toJsonForSave()
           tally.setPatchChannels(channelId ? [channelId] : [], "or")
-          this.setAndAnnounceTally(tally)
+          this.setAndAnnounceTally(tally, previousConfigAsJson)
           console.debug(`Tally "${tally.name}" patched to "${channelId}"`)
       } else {
           console.warn(`Can not patch unknown tally named "${tallyName}"`)
@@ -152,8 +155,9 @@ class TallyContainer {
   patchChannels(tallyName: string, tallyType: TallyType, channelIds: string[], channelMatchMode: ChannelMatchMode) {
       const tally = this.get(tallyName, tallyType)
       if (tally) {
+          const previousConfigAsJson = tally.toJsonForSave()
           tally.setPatchChannels(channelIds, channelMatchMode)
-          this.setAndAnnounceTally(tally)
+          this.setAndAnnounceTally(tally, previousConfigAsJson)
           console.debug(`Tally "${tally.name}" patched to "${tally.getPatchChannelIds().join(", ")}" using ${tally.channelMatchMode.toUpperCase()}`)
       } else {
           console.warn(`Can not patch unknown tally named "${tallyName}"`)

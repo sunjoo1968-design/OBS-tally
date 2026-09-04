@@ -1,6 +1,6 @@
 {
   "name": "wifi-vtally",
-  "version": "1.5.6",
+  "version": "1.5.7",
   "private": true,
   "dependencies": {
     "atem-connection": "^3.0.0-nightly-latest-20211125-222857-2b30eea.0",

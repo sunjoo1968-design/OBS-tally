@@ -6,10 +6,16 @@ and configuration.
 
 [Full documentation at wifi-tally.github.io](https://wifi-tally.github.io/)
 
-## SunjooAN v1.5.6 notes
+## SunjooAN v1.5.7 notes
 
 This repository is maintained as the SunjooAN OBS tally package at
 `sunjoo1968-design/OBS-tally`.
+
+Version 1.5.7 fixes persistence for listener channel assignments and individual
+listener settings. Assigned `channelIds` and `channelMatchMode` now survive Hub
+and PC restarts.
+
+## SunjooAN v1.5.6 notes
 
 Version 1.5.6 adds legacy NodeMCU listener support without changing the current
 v1.5.x ESP8266 listener firmware:
@@ -75,7 +81,7 @@ Before pushing you should run the tests with
 
     npm run test
 
-For the connector and firmware checks used in v1.5.6:
+For the connector, firmware, and persistence checks used in v1.5.7:
 
     npm run build:backend
     npm test -- --watchAll=false --runInBand VmixConnector
