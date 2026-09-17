@@ -10,6 +10,8 @@ function createConnector(mode: ObsConfigurationLiveMode) {
     const connector = new ObsConnector(configuration, communicator as any)
     const call = jest.fn().mockResolvedValue({outputActive: false, outputPaused: false})
     connector.obs = {call} as any
+    connector.connected = true
+    connector['stopped'] = false
 
     return {connector, call}
 }

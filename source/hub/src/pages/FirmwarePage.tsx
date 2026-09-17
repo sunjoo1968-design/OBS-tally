@@ -86,6 +86,10 @@ type FirmwareStatus = {
       label: string
       firmwareExists: boolean
     }
+    'nodemcu-v3': {
+      label: string
+      firmwareExists: boolean
+    }
     'legacy-nodemcu': {
       label: string
       baseFirmwareExists: boolean
@@ -175,10 +179,13 @@ const FirmwarePage = () => {
 
   const currentFirmwareReady = status?.targets?.current?.firmwareExists ?? status?.firmwareExists
   const currentReady = !!currentFirmwareReady && !!status?.esptoolExists
+  const nodeMcuV3Ready = !!status?.targets?.['nodemcu-v3']?.firmwareExists && !!status?.esptoolExists
   const legacyReady = form.legacyMode === 'settings-only'
     ? true
     : !!status?.targets?.['legacy-nodemcu']?.baseFirmwareExists && !!status?.targets?.['legacy-nodemcu']?.programFilesReady && !!status?.esptoolExists
-  const toolsReady = form.target === 'legacy-nodemcu' ? legacyReady : currentReady
+  const toolsReady = form.target === 'legacy-nodemcu'
+    ? legacyReady
+    : form.target === 'nodemcu-v3' ? nodeMcuV3Ready : currentReady
   const isLegacy = form.target === 'legacy-nodemcu'
 
   return (
@@ -192,6 +199,7 @@ const FirmwarePage = () => {
           <CardContent>
             <div className={classes.status}>
               <Typography>Current firmware file: {currentFirmwareReady ? 'Ready' : 'Missing'}</Typography>
+              <Typography>NodeMCU V3 firmware: {status?.targets?.['nodemcu-v3']?.firmwareExists ? 'Ready' : 'Missing'}</Typography>
               <Typography>Legacy NodeMCU files: {status?.targets?.['legacy-nodemcu']?.programFilesReady ? `${status.targets['legacy-nodemcu'].programFilesCount} files ready` : 'Missing'}</Typography>
               <Typography>esptool: {status?.esptoolExists ? 'Ready' : 'Missing'}</Typography>
             </div>
@@ -200,6 +208,7 @@ const FirmwarePage = () => {
                 <InputLabel>Firmware Target</InputLabel>
                 <NativeSelect fullWidth value={form.target} onChange={event => setField('target', event.target.value as string)}>
                   <option value="current">Current v1.5.x ESP8266 Listener</option>
+                  <option value="nodemcu-v3">NodeMCU Lua WiFi V3 (Arduino firmware)</option>
                   <option value="legacy-nodemcu">Legacy NodeMCU Listener</option>
                 </NativeSelect>
               </Grid>

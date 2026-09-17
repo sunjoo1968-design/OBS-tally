@@ -1,8 +1,11 @@
 # dependencies
 node_modules/
 source/hub/node_modules/
+source/hub/.npm-cache/
 
 # build intermediates
+.build-tools/
+.listener-build/
 source/hub/build/
 source/hub/dist/
 source/hub/portable/
@@ -23,7 +26,7 @@ etc/
 old/
 release/*
 !release/
-!release/README_v*.md
+!release/README_v1.5.10.md
 source/hub/portable-tools/
 source/ESP8266_vTally_Listener/*.pdf
 

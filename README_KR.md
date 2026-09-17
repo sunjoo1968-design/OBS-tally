@@ -1,159 +1,68 @@
-# wifi-vtally-v1.5.7
+# OBS Tally v1.5.10
 
-vTally Hub와 ESP8266 탈리 리스너를 함께 정리한 Windows 실행 패키지입니다.
+SunjooAN이 유지보수하는 OBS/vMix/ATEM 무선 탈리 프로젝트입니다.
+Windows Hub, 현재 ESP8266/NodeMCU V3, 초기 NodeMCU Lua 리스너를 지원합니다.
 
-원격 저장소: [sunjoo1968-design/OBS-tally](https://github.com/sunjoo1968-design/OBS-tally)
+## 실행 및 다운로드
 
-## v1.5.7 변경 이력
+- [전체 Windows 실행 패키지](https://github.com/sunjoo1968-design/OBS-tally/releases/download/v1.5.10/OBS-tally-v1.5.10-runtime.zip)
+- [펌웨어 전용 패키지](https://github.com/sunjoo1968-design/OBS-tally/releases/download/v1.5.10/OBS-tally-v1.5.10-firmware.zip)
+- [릴리즈 안내](release/README_v1.5.10.md)
 
-- 리스너 채널 지정 후 `channelIds`와 `channelMatchMode`가 설정 파일에 저장되지 않던 문제를 수정했습니다.
-- Hub 또는 PC 재시작 후에도 지정한 리스너 채널이 복원됩니다.
-- 같은 객체 갱신 경로를 사용하던 개별 리스너 설정도 안정적으로 저장되도록 수정했습니다.
-- 채널 및 리스너 설정 변경 시 실제 저장 이벤트가 발생하는지 확인하는 회귀 테스트를 추가했습니다.
-- 웹 상단 버전 표기를 `V1.5.7`로 갱신했습니다.
+ZIP을 풀고 `vtally-web.exe`를 실행합니다. 웹 주소는 `http://localhost:3000/`입니다.
+같이 제공되는 `firmware/` 폴더를 실행 파일 옆에 유지합니다.
+Windows x64에서는 별도 Java/Node/.NET 설치가 필요하지 않습니다.
+이 작업 폴더의 실행 위치는 `release/v1.5.10/vtally-web.exe`입니다.
 
-## v1.5.6 변경 이력
+기존 Hub를 먼저 종료하고 실제 `wifi-tally.json`, `vtally-web-options.json`을 백업한 뒤 교체합니다.
+기존 실제 설정은 v1.5.10 실행 폴더에 보존하고 Git/ZIP에는 포함하지 않습니다.
+배포 ZIP에는 샘플 설정만 있습니다. Windows 자동 시작은 새 실행 위치에서 트레이 메뉴로 설정합니다.
 
-- 현재 v1.5.x ESP8266 리스너 펌웨어 동작은 유지하면서 초기 NodeMCU 리스너 지원을 추가했습니다.
-- 웹 `FIRMWARE` 탭에서 `Current v1.5.x ESP8266 Listener`와 `Legacy NodeMCU Listener`를 선택할 수 있습니다.
-- 초기 NodeMCU 리스너는 IP/WiFi 변경 시 전체 재설치 없이 `tally-settings.ini`만 다시 업로드할 수 있습니다.
-- 레거시 설정 화면에서 Operator/Stage RGB LED 타입과 WS2812 개수(각 0~10), GRB/RGB 색상 순서를 설정할 수 있습니다.
-- 펌웨어 화면의 Hub IP는 현재 Hub PC의 물리 LAN/WiFi IPv4로 자동 입력되며 수동 수정도 가능합니다.
-- 펌웨어 관리 API는 Hub PC 로컬 접속으로 제한하고 동시 플래시 요청을 차단했습니다.
-- vMix 정상 연결 종료 후 재접속, 비연속 입력 번호, 빈 입력 XML, UDP 오류 복구와 로그 메모리 누적 문제를 개선했습니다.
-- 빈 보드나 초기화가 필요한 보드는 `Erase and reinstall legacy firmware`로 NodeMCU 기본 펌웨어와 Lua/LC 파일을 다시 설치할 수 있습니다.
-- 웹 상단 버전 표기를 `V1.5.6`으로 갱신했습니다.
+## 유지한 기능
 
-## v1.5.5 변경 이력
+- OBS v5 장면·그룹·소스 탈리, 컬렉션 교체 중 요청 중지, 제한 시간·재연결·이벤트 병합
+- vMix Mix2가 메인 PGM/PVW에 표시될 때만 내부 탈리 반영, ATEM 지원
+- 채널 AND/OR 지정과 재부팅 후 복원, 웹 리스너, Windows 트레이 실행
+- 로컬 PC의 FIRMWARE 탭에서 보드별 설치 및 레거시 INI 설정
+- 기존 핀 배치와 STL 케이스 모델
 
-- vMix Mix2 내부 PGM 소스가 Mix2가 메인 PGM/PVW에 없을 때도 tally로 반영되던 문제를 수정했습니다.
-- Mix2 입력 자체가 vMix 메인 PGM에 있을 때만 Mix2 내부 PGM 소스를 적색으로 반영합니다.
-- Mix2 입력 자체가 vMix 메인 PVW에 있을 때는 Mix2 내부 PGM 소스를 녹색으로 반영합니다.
-- Mix2 입력이 메인 PGM/PVW 어디에도 없으면 Mix2 내부 PGM/PVW 소스를 tally 상태에 반영하지 않습니다.
-- 웹 상단 버전 표기를 `V1.5.5`로 갱신했습니다.
+## 리스너 개선
 
-## v1.5.0 변경 이력
+- UDP 형식·RGB·Hub IP/포트 검증, 정상 패킷만 연결 생존 갱신
+- 반복 패킷에도 깜박임 위상 유지, 식별/미확인/노랑/자홍 표시 수정
+- WiFi 단절·IP 변경 시 이전 표시 해제 및 UDP 재바인딩/실패 재시도
+- 버튼 조작 중 통신 유지, 비차단 수동 포털, WiFi 저장 전 이전 표시 해제
+- EEPROM 문자열/CRC 검증, 최신 WiFi 설정 동기화, LED/OLED 불필요한 갱신 감소
+- 레거시 타이머 순환·재접속 타이머 누적·로그 실패 재귀/유실·INI 파싱 개선
 
-- vMix 선택 시 Mix2 내부 소스 전환이 탈리 리스너에 늦게 반영되던 문제를 개선했습니다.
-- vMix Mix 입력 상태 XML 조회 주기를 1초에서 250ms로 줄였습니다.
-- vMix `TALLY OK` 이벤트 수신 직후 Mix 입력 상태를 재조회해 반응 시간을 단축했습니다.
-- vMix TCP 응답을 버퍼링해 XML/명령이 조각나 들어와도 완성된 명령 단위로 처리하도록 안정화했습니다.
-- vMix 재연결 시 기존 socket을 재사용하지 않고 새 socket으로 연결해 장애 복구 안정성을 높였습니다.
-- `vmix-mix-debug.json` 파일은 `VTALLY_VMIX_DEBUG=true`일 때만 생성하도록 바꿔 평상시 디스크 I/O를 줄였습니다.
-- 웹 상단에 `made by SunjooAN`과 `V1.5.0` 표기를 추가했습니다.
+**리스너마다 새 펌웨어를 기록해야 적용됩니다.** Hub 교체만으로 자동 업데이트되지 않습니다.
+웹 플래시는 보드 설정을 초기화하므로 WiFi/Hub/이름/밝기/레거시 INI 값을 먼저 확인하고 입력합니다.
+레거시는 설정-only가 아닌 전체 재설치를 선택해야 새 `.lc`가 설치됩니다.
+V3 Arduino 대상은 Lua 런타임을 교체하므로 초기 레거시 대상과 구분합니다.
 
-## 바로 실행
+## 폴더 정리 기준
 
-`release\vtally-web.exe`를 실행하면 됩니다.
+v1.5.10 소스·테스트·필수 펌웨어·빌드 스크립트·문서·STL·라이선스만 보존합니다.
+이전 버전 배포물, 중복 원본/바이너리, 임시 컴파일러/캐시/빌드 결과는 제거합니다.
+레거시 수정 소스는 `source/Legacy_NodeMCU_Listener/src`, 배포 펌웨어는 `source/hub/firmware`가 기준입니다.
+실행 패키지는 GitHub Releases에, 펌웨어와 STL은 Git LFS에 저장합니다.
+Git 이력과 이전 GitHub 릴리즈는 복구 기록으로 유지하며 삭제하지 않습니다.
 
-같은 폴더에 `release\firmware` 폴더가 있어야 웹의 `FIRMWARE` 탭에서 ESP8266 펌웨어 기록 기능을 사용할 수 있습니다.
+## 검증 및 빌드
 
-필요 파일:
+Hub 250 tests 통과(기존 제외 1개), 실행 패키지 smoke 5개 통과.
+실제 Arduino 소스의 hardware mock 32 assertions, 레거시 소스/컴파일 결과 각각 89 assertions 통과.
+프로토콜 반복 검사, 펌웨어 marker, 기본 이미지 보존 및 ZIP 해시도 확인했습니다.
+실제 보드·전원·무선 환경·장시간 방송은 예비 보드에서 추가 검증해야 합니다.
 
-- `release\vtally-web.exe`
-- `release\firmware\ESP8266_vTally_Listener.bin`
-- `release\firmware\esptool.exe`
-- `release\firmware\legacy-nodemcu\*`
+- [빌드 방법](docs/BUILD_v1.5.10.md)
+- [OBS 안정성 검토](docs/OBS_STABILITY_REVIEW_v1.5.10.md)
+- [리스너 안정성 검토](docs/LISTENER_STABILITY_REVIEW_v1.5.10.md)
 
-Windows 11에서는 별도 Java/Node/.NET 설치 없이 실행되도록 구성했습니다.
+웹 관리는 신뢰할 수 있는 LAN에서만 사용하고 인터넷에 포트를 공개하지 않습니다.
+OBS WebSocket 인증을 활성화합니다. 기존 의존성의 보안 이슈 전체를 해결한 버전은 아닙니다.
 
-실행 후 브라우저에서 `http://localhost:3000/`으로 접속하면 됩니다.
+## 라이선스
 
-## 웹 기능
-
-- `TALLIES`: 탈리 카드 관리
-- `CONFIGURATION`: OBS, vMix, ATEM 설정
-- `FIRMWARE`: 현재 ESP8266 리스너 펌웨어 기록, 초기 NodeMCU 리스너 설정/재설치
-
-펌웨어 탭에서 입력 가능한 값:
-
-- COM Port
-- WiFi SSID / Password
-- 설정용 AP 이름
-- Hub IP / Port
-- Tally Name
-- Front / Operator / Idle 밝기
-- Idle Color
-
-밝기는 `1`, `16`, `32`, `64`, `128`, `255`의 6단계 선택 방식입니다.
-
-초기 NodeMCU 리스너는 밝기/Idle Color 항목을 사용하지 않습니다. IP 또는 WiFi만 바뀌었을 때는 `Legacy NodeMCU Listener`와 `Update IP/WiFi settings only`를 선택해 설정 파일만 다시 올리면 됩니다.
-
-## 소스 구조
-
-- `source\hub`: Hub 앱 소스
-- `source\hub\tray-launcher`: Windows 트레이 실행기 소스
-- `source\hub\firmware`: ESP8266 펌웨어 bin
-- `source\hub\firmware\esptool.exe`: 펌웨어 기록 도구
-- `source\ESP8266_vTally_Listener`: Arduino ESP8266 리스너 소스
-- `source\Legacy_NodeMCU_Listener`: 초기 NodeMCU 리스너 펌웨어, 원본 Lua 소스와 테스트
-- `config\wifi-tally.sample.json`: 새 PC용 샘플 설정
-
-## 다시 빌드할 때
-
-Hub 소스 폴더:
-
-```powershell
-cd source\hub
-npm install --legacy-peer-deps
-npm run build:backend
-$env:CI='false'; $env:NODE_OPTIONS='--openssl-legacy-provider'; npm run build:frontend
-```
-
-프론트 빌드 후 `build` 내용을 `dist\frontend`로 복사해야 패키징된 서버가 웹 UI를 제공합니다.
-
-```powershell
-New-Item -ItemType Directory -Force dist\frontend
-Copy-Item build\* dist\frontend -Recurse -Force
-```
-
-서버 exe:
-
-```powershell
-npx pkg dist/server.js --config .pkgrc.json --targets node18-win-x64 --output portable\vtally-server.exe
-```
-
-트레이 exe:
-
-```powershell
-dotnet publish tray-launcher\VtallyTray.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:EnableCompressionInSingleFile=true -o portable\single-build
-```
-
-릴리즈 반영:
-
-```powershell
-copy portable\single-build\vtally-web.exe ..\..\release\vtally-web.exe
-```
-
-## 검증 기준
-
-v1.5.7 릴리즈 생성 시 확인할 항목:
-
-- `npm run build:backend`
-- `$env:CI='true'; npm test -- --watchAll=false --runInBand TallyContainer VmixConnector`
-- `$env:CI='false'; $env:NODE_OPTIONS='--openssl-legacy-provider'; npm run build:frontend`
-- `release\vtally-web.exe` 실행 후 `http://localhost:3000/` 응답 확인
-
-## 정리 기준
-
-포함한 것:
-
-- 수정된 Hub 소스
-- Windows 트레이 런처 소스
-- ESP8266 리스너 소스
-- 배포 실행 파일
-- 펌웨어 기록용 bin/esptool
-- 샘플 설정
-
-제외한 것:
-
-- `node_modules`
-- `build`, `dist`
-- `firmware-build`
-- `tray-launcher\bin`, `tray-launcher\obj`
-- 임시/디버그 파일
-- 현재 PC에서 자동 생성된 실제 `wifi-tally.json`
-
-## 라이선스와 원본 출처
-
-이 프로젝트는 dev at xopn.de의 MIT 라이선스 `wifi-tally` 프로젝트를 기반으로 합니다. 원 저작권과 라이선스는 루트 `LICENSE`에 보존했으며, 초기 NodeMCU Lua 원본과 테스트는 `source\Legacy_NodeMCU_Listener\upstream-source`에 보존했습니다.
+MIT wifi-tally 프로젝트(Copyright (c) 2020 dev at xopn.de)를 기반으로 합니다.
+원 저작권/라이선스는 [LICENSE](LICENSE), 레거시 출처는 [UPSTREAM.md](source/Legacy_NodeMCU_Listener/UPSTREAM.md)에 보존합니다.

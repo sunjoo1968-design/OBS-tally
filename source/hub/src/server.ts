@@ -102,6 +102,10 @@ app.get('/api/firmware/status', (req, res) => {
         label: status.targets.current.label,
         firmwareExists: status.targets.current.firmwareExists,
       },
+      'nodemcu-v3': {
+        label: status.targets['nodemcu-v3'].label,
+        firmwareExists: status.targets['nodemcu-v3'].firmwareExists,
+      },
       'legacy-nodemcu': {
         label: status.targets['legacy-nodemcu'].label,
         baseFirmwareExists: status.targets['legacy-nodemcu'].baseFirmwareExists,

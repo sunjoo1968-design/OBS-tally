@@ -1,4 +1,4 @@
-import { createLegacySettingsIni, FirmwareFlashOptions, flashFirmware } from './FirmwareFlasher'
+import { createLegacySettingsIni, FirmwareFlashOptions, flashFirmware, getFirmwareToolStatus } from './FirmwareFlasher'
 
 const options: FirmwareFlashOptions = {
   target: 'legacy-nodemcu',
@@ -48,5 +48,13 @@ describe('legacy firmware settings', () => {
 
   test('rejects unsupported flash modes before opening a COM port', async () => {
     await expect(flashFirmware({...options, legacyMode: 'invalid' as any})).rejects.toThrow('Legacy flash mode is invalid')
+  })
+})
+
+describe('NodeMCU V3 Arduino firmware', () => {
+  test('exposes a dedicated firmware target', () => {
+    const target = getFirmwareToolStatus().targets['nodemcu-v3']
+    expect(target.label).toContain('NodeMCU Lua WiFi V3')
+    expect(target.firmwarePath).toMatch(/NodeMCU_V3_vTally_Listener\.bin$/)
   })
 })

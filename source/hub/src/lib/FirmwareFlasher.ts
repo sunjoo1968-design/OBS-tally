@@ -5,7 +5,7 @@ import net from 'net'
 import { execFile, spawn } from 'child_process'
 import tmp from 'tmp-promise'
 
-export type FirmwareTarget = 'current' | 'legacy-nodemcu'
+export type FirmwareTarget = 'current' | 'nodemcu-v3' | 'legacy-nodemcu'
 export type LegacyFlashMode = 'settings-only' | 'full-reinstall'
 
 export type FirmwareFlashOptions = {
@@ -37,6 +37,7 @@ export type FirmwareFlashResult = {
 
 const firmwareDir = () => path.join(process.cwd(), 'firmware')
 const sourceFirmwarePath = () => path.join(firmwareDir(), 'ESP8266_vTally_Listener.bin')
+const nodeMcuV3FirmwarePath = () => path.join(firmwareDir(), 'NodeMCU_V3_vTally_Listener.bin')
 const esptoolPath = () => path.join(firmwareDir(), process.platform === 'win32' ? 'esptool.exe' : 'esptool')
 const legacyFirmwareDir = () => path.join(firmwareDir(), 'legacy-nodemcu')
 const legacyBaseFirmwarePath = () => path.join(legacyFirmwareDir(), 'nodemcu-3.0-master_20200610-cfe68233-float.bin')
@@ -93,6 +94,11 @@ export const getFirmwareToolStatus = () => {
         firmwarePath: sourceFirmwarePath(),
         firmwareExists: fs.existsSync(sourceFirmwarePath()),
       },
+      'nodemcu-v3': {
+        label: 'NodeMCU Lua WiFi V3 (Arduino firmware)',
+        firmwarePath: nodeMcuV3FirmwarePath(),
+        firmwareExists: fs.existsSync(nodeMcuV3FirmwarePath()),
+      },
       'legacy-nodemcu': {
         label: 'Legacy NodeMCU Listener',
         firmwareDir: legacyFirmwareDir(),
@@ -135,7 +141,7 @@ export const listComPorts = (): Promise<string[]> => {
 
 export const flashFirmware = async (options: FirmwareFlashOptions): Promise<FirmwareFlashResult> => {
   const target = options.target || 'current'
-  if (!['current', 'legacy-nodemcu'].includes(target)) {
+  if (!['current', 'nodemcu-v3', 'legacy-nodemcu'].includes(target)) {
     throw new Error('Firmware target is invalid.')
   }
   if (target === 'legacy-nodemcu') {
@@ -145,8 +151,9 @@ export const flashFirmware = async (options: FirmwareFlashOptions): Promise<Firm
   validateCurrentOptions(options)
 
   const status = getFirmwareToolStatus()
-  if (!status.firmwareExists) {
-    throw new Error(`Firmware file was not found: ${status.firmwarePath}`)
+  const firmwarePath = target === 'nodemcu-v3' ? nodeMcuV3FirmwarePath() : sourceFirmwarePath()
+  if (!fs.existsSync(firmwarePath)) {
+    throw new Error(`Firmware file was not found: ${firmwarePath}`)
   }
   if (!status.esptoolExists) {
     throw new Error(`esptool was not found: ${status.esptoolPath}`)
@@ -155,7 +162,7 @@ export const flashFirmware = async (options: FirmwareFlashOptions): Promise<Firm
   const {path: workDir, cleanup} = await tmp.dir({unsafeCleanup: true})
   try {
     const patchedFirmwarePath = path.join(workDir, 'ESP8266_vTally_Listener.patched.bin')
-    patchFirmware(status.firmwarePath, patchedFirmwarePath, options)
+    patchFirmware(firmwarePath, patchedFirmwarePath, options)
 
     const logLines: string[] = []
     await runEsptool(['--chip', 'esp8266', '--port', options.port, '--baud', '460800', 'erase_flash'], workDir, logLines)

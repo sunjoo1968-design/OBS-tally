@@ -1,330 +1,402 @@
-import OBSWebSocket from 'obs-websocket-js'
+import OBSWebSocket, { EventSubscription, OBSRequestTypes, OBSResponseTypes } from 'obs-websocket-js'
 import Channel from '../../domain/Channel'
 import { MixerCommunicator } from '../../lib/MixerCommunicator'
 import { Connector } from '../interfaces'
 import ObsConfiguration from './ObsConfiguration'
 
-const reconnectTimeoutMs = 1000
-const obsSourceChannelPrefix = "obs-source:"
-type SourceCategory = "group" | "source"
+const requestTimeoutMs = 5000
+const connectTimeoutMs = 8000
+const heartbeatMs = 5000
+const obsSourceChannelPrefix = 'obs-source:'
+type SourceCategory = 'group' | 'source'
+class StaleObsRequest extends Error {}
 
-// uses obs-websockets
-// @see https://github.com/Palakis/obs-websocket
-class ObsConnector implements Connector{
+class ObsConnector implements Connector {
     configuration: ObsConfiguration
     communicator: MixerCommunicator
-    // tracks which enabled sources are visible inside each scene
-    visibleSourcesByScene: {[sceneName: string]: string[]} = {}
+    visibleSourcesByScene: {[sceneName: string]: string[]} = Object.create(null)
     selectableSources: string[] = []
-    selectableSourceCategories: {[sourceName: string]: SourceCategory} = {}
+    selectableSourceCategories: {[sourceName: string]: SourceCategory} = Object.create(null)
     reconnectTimeout: NodeJS.Timeout | null = null
-    obs: OBSWebSocket | null
-    connected: boolean = false
+    obs: OBSWebSocket | null = null
+    connected = false
+    private stopped = true
+    private collectionChanging = false
+    private collectionEpoch = 0
     private previewScenes: string[] = []
     private programScenes: string[] = []
-    private isStreaming: boolean = false
-    private isRecording: boolean = false
-    
+    private isStreaming = false
+    private isRecording = false
+    private programRevision = 0
+    private previewRevision = 0
+    private streamRevision = 0
+    private recordRevision = 0
+    private sourceRevision = 0
+    private reconnectDelay = 1000
+    private connectTimer: NodeJS.Timeout | null = null
+    private heartbeatTimer: NodeJS.Timeout | null = null
+    private refreshTimer: NodeJS.Timeout | null = null
+    private sceneRefresh: Promise<void> | null = null
+    private refreshDirty = false
+    private sceneFailures = 0
+    private pendingRequests = new Set<() => void>()
+
     constructor(configuration: ObsConfiguration, communicator: MixerCommunicator) {
         this.configuration = configuration
         this.communicator = communicator
     }
+
     connect() {
-        this.obs = new OBSWebSocket()
-        // @ts-ignore https://github.com/haganbmj/obs-websocket-js/issues/203
-        this.obs.on('error', err => {
-            console.error("obs socket error:", err)
+        if (!this.stopped) return
+        this.stopped = false
+        this.startConnection()
+    }
+
+    private isCurrent(client: OBSWebSocket) {
+        return !this.stopped && this.obs === client
+    }
+
+    private canRequest(client: OBSWebSocket, epoch = this.collectionEpoch) {
+        return this.isCurrent(client) && this.connected && !this.collectionChanging && epoch === this.collectionEpoch
+    }
+
+    private startConnection() {
+        if (this.stopped) return
+        this.reconnectTimeout = null
+        const client = new OBSWebSocket()
+        this.obs = client
+        this.collectionChanging = false
+        this.sceneFailures = 0
+        this.isStreaming = false
+        this.isRecording = false
+        this.resetScenes()
+        client.on('ConnectionError', error => this.failConnection(client, error))
+        client.on('ConnectionClosed', error => this.failConnection(client, error))
+        client.on('ExitStarted', () => this.failConnection(client, new Error('OBS is shutting down.')))
+        client.on('CurrentProgramSceneChanged', data => {
+            if (!this.canRequest(client)) return
+            this.programRevision++
+            this.programScenes = [data.sceneName]
+            this.notifyChanged()
         })
-        this.obs.on('CurrentProgramSceneChanged', data => {
-            // console.debug('CurrentProgramSceneChanged', data)
-            this.notifyProgramChanged([data.sceneName])
+        client.on('CurrentPreviewSceneChanged', data => {
+            if (!this.canRequest(client)) return
+            this.previewRevision++
+            this.previewScenes = [data.sceneName]
+            this.notifyChanged()
         })
-        this.obs.on('SceneListChanged', data => {
-            // console.debug('SceneListChanged', data)
-            this.updateScenes()
+        const refresh = () => {
+            if (!this.canRequest(client)) return
+            this.sourceRevision++
+            this.scheduleSceneRefresh()
+        }
+        client.on('SceneListChanged', refresh)
+        client.on('SceneCreated', refresh)
+        client.on('SceneRemoved', refresh)
+        client.on('SceneNameChanged', refresh)
+        client.on('InputNameChanged', refresh)
+        client.on('SceneItemCreated', refresh)
+        client.on('SceneItemRemoved', refresh)
+        client.on('SceneItemEnableStateChanged', refresh)
+        client.on('CurrentSceneCollectionChanging', () => {
+            if (!this.isCurrent(client)) return
+            // OBS explicitly forbids requests while replacing scene collections.
+            this.collectionChanging = true
+            this.collectionEpoch++
+            this.cancelRequests()
+            this.clearRefresh()
+            this.resetScenes()
         })
-        this.obs.on('SceneItemCreated', data => {
-            // console.debug('SceneItemCreated', data)
-            this.updateScenes()
+        client.on('CurrentSceneCollectionChanged', () => {
+            if (!this.isCurrent(client)) return
+            this.collectionChanging = false
+            this.scheduleSceneRefresh(0)
+            void this.updatePreviewScene(client)
+            this.updateOutputStates()
         })
-        this.obs.on('SceneItemRemoved', data => {
-            // console.debug('SceneItemRemoved', data)
-            this.updateScenes()
-        })
-        this.obs.on('SceneItemEnableStateChanged', data => {
-            // console.debug('SceneItemEnableStateChanged', data)
-            this.updateScenes()
-        })
-        this.obs.on('CurrentSceneCollectionChanged', data => {
-            // console.debug('CurrentSceneCollectionChanged', data)
-            this.updateScenes()
-        })
-        this.obs.on('SceneCollectionListChanged', data => {
-            // console.debug('SceneCollectionListChanged', data)
-            this.updateScenes()
-        })
-        this.obs.on('CurrentPreviewSceneChanged', data => {
-            // console.debug('CurrentPreviewSceneChanged', data)
-            this.notifyPreviewChanged([data.sceneName])
-        })
-        this.obs.on('StudioModeStateChanged', data => {
-            // console.debug('StudioModeStateChanged', data)
-            if (data.studioModeEnabled) {
-                // if: switched INTO studio mode
-                this.updatePreviewScene()
-            } else {
-                // if: switched OUT OF studio mode
+        client.on('StudioModeStateChanged', data => {
+            if (!this.canRequest(client)) return
+            this.previewRevision++
+            if (data.studioModeEnabled) void this.updatePreviewScene(client)
+            else {
                 this.previewScenes = []
                 this.notifyChanged()
             }
         })
-
-        this.obs.on('StreamStateChanged', data => {
-            // console.debug('StreamStateChanged', data)
+        client.on('StreamStateChanged', data => {
+            if (!this.isCurrent(client)) return
+            this.streamRevision++
             this.isStreaming = data.outputActive
             this.notifyChanged()
         })
-        this.obs.on('RecordStateChanged', data => {
-            // console.debug('RecordStateChanged', data)
-            this.isRecording = data.outputActive
+        client.on('RecordStateChanged', data => {
+            if (!this.isCurrent(client)) return
+            this.recordRevision++
+            this.isRecording = data.outputActive && data.outputState !== 'OBS_WEBSOCKET_OUTPUT_PAUSED'
             this.notifyChanged()
         })
 
-        const connect = () => {
-            if (!this.obs) { return }
-            if (this.reconnectTimeout) { 
-                clearTimeout(this.reconnectTimeout)
+        this.connectTimer = setTimeout(() => this.failConnection(client, new Error('OBS handshake timed out.')), connectTimeoutMs)
+        console.log(`Connecting to OBS at ${this.configuration.getIp()}:${this.configuration.getPort().toNumber()}`)
+        client.connect(
+            `ws://${this.configuration.getIp()}:${this.configuration.getPort().toNumber()}`,
+            this.configuration.getPassword() || undefined,
+            {rpcVersion: 1, eventSubscriptions: EventSubscription.General | EventSubscription.Config |
+                EventSubscription.Scenes | EventSubscription.Inputs | EventSubscription.Outputs |
+                EventSubscription.SceneItems | EventSubscription.Ui},
+        ).then(() => {
+            if (!this.isCurrent(client)) return
+            if (this.connectTimer) clearTimeout(this.connectTimer)
+            this.connectTimer = null
+            this.connected = true
+            this.communicator.notifyMixerIsConnected()
+            this.scheduleSceneRefresh(0)
+            void this.updatePreviewScene(client)
+            this.updateOutputStates()
+            this.scheduleHeartbeat(client)
+            console.log('Connected to OBS')
+        }).catch(error => this.failConnection(client, error))
+    }
+
+    private cancelRequests() {
+        this.pendingRequests.forEach(cancel => cancel())
+        this.pendingRequests.clear()
+    }
+
+    private request<T extends keyof OBSRequestTypes>(client: OBSWebSocket, type: T, epoch = this.collectionEpoch, data?: OBSRequestTypes[T]): Promise<OBSResponseTypes[T]> {
+        if (!this.canRequest(client, epoch)) return Promise.reject(new StaleObsRequest())
+        return new Promise((resolve, reject) => {
+            const cancel = () => {
+                clearTimeout(timer)
+                this.pendingRequests.delete(cancel)
+                reject(new StaleObsRequest())
             }
-            console.log(`Connecting to OBS at ${this.configuration.getIp().toString()}:${this.configuration.getPort().toNumber()}`)
-            this.obs.connect(
-                `ws://${this.configuration.getIp().toString()}:${this.configuration.getPort().toNumber()}`,
-                this.configuration.getPassword() || undefined,
-                {rpcVersion: 1},
-            ).then(() => {
-                this.connected = true
-                this.communicator.notifyMixerIsConnected()
-                this.updateScenes()
-                this.updatePreviewScene()
-                this.updateOutputStates()
-                console.log("Connected to OBS")
-
-                this.obs?.on('ConnectionClosed', () => {
-                    this.connected = false
-                    this.communicator.notifyMixerIsDisconnected()
-                    this.obs?.removeAllListeners('ConnectionClosed')
-                    console.error("Connection to OBS lost")
-                    this.reconnectTimeout = setTimeout(connect, reconnectTimeoutMs)
-                })
-            }).catch(err => {
-                this.connected = false
-                this.communicator.notifyMixerIsDisconnected()
-                console.error("error when connecting to OBS:", err.message || err.error || err)
-                this.reconnectTimeout = setTimeout(connect, reconnectTimeoutMs)
+            const timer = setTimeout(() => {
+                const error = new Error(`OBS request timed out: ${type}`)
+                reject(error)
+                this.failConnection(client, error)
+            }, requestTimeoutMs)
+            this.pendingRequests.add(cancel)
+            client.call(type, data).then(result => {
+                if (this.canRequest(client, epoch)) resolve(result)
+                else reject(new StaleObsRequest())
+            }, reject).finally(() => {
+                clearTimeout(timer)
+                this.pendingRequests.delete(cancel)
             })
-        }
+        })
+    }
 
-        connect()
-
+    private resetScenes() {
+        this.programRevision++
+        this.previewRevision++
+        this.streamRevision++
+        this.recordRevision++
+        this.programScenes = []
+        this.previewScenes = []
+        this.visibleSourcesByScene = Object.create(null)
+        this.selectableSources = []
+        this.selectableSourceCategories = Object.create(null)
         this.communicator.notifyProgramPreviewChanged(null, null)
     }
-    private updatePreviewScene() {
-        this.obs?.call("GetCurrentPreviewScene").then(data => {
-            // console.debug("GetCurrentPreviewScene", data)
-            this.notifyPreviewChanged([data.sceneName])
-        }).catch(err => {
-            // if studio mode is disabled we get an error and fail gracefully
-        })
-    }
-    private updateOutputStates() {
-        const liveMode = this.configuration.getLiveMode()
 
-        // OBS handles both requests through GetOutputStatus. Avoid touching the
-        // output/FFmpeg state when the selected tally mode does not need it.
-        if (liveMode === "stream" || liveMode === "streamOrRecord") {
-            this.obs?.call("GetStreamStatus").then(data => {
+    private clearRefresh() {
+        if (this.refreshTimer) clearTimeout(this.refreshTimer)
+        this.refreshTimer = null
+        this.sceneRefresh = null
+        this.refreshDirty = false
+    }
+
+    private failConnection(client: OBSWebSocket, error: any) {
+        if (!this.isCurrent(client)) return
+        this.obs = null
+        this.connected = false
+        if (this.connectTimer) clearTimeout(this.connectTimer)
+        if (this.heartbeatTimer) clearTimeout(this.heartbeatTimer)
+        this.connectTimer = this.heartbeatTimer = null
+        this.cancelRequests()
+        this.clearRefresh()
+        this.resetScenes()
+        this.communicator.notifyMixerIsDisconnected()
+        client.removeAllListeners()
+        void client.disconnect().catch(() => {})
+        console.error('OBS connection lost:', error?.message || error?.code || 'Socket closed')
+        this.reconnectTimeout = setTimeout(() => this.startConnection(), this.reconnectDelay)
+        this.reconnectDelay = Math.min(this.reconnectDelay * 2, 10000)
+    }
+
+    private scheduleHeartbeat(client: OBSWebSocket) {
+        this.heartbeatTimer = setTimeout(async () => {
+            this.heartbeatTimer = null
+            if (!this.isCurrent(client)) return
+            if (!this.collectionChanging) {
+                const revision = this.programRevision
+                try {
+                    const data = await this.request(client, 'GetCurrentProgramScene')
+                    if (revision === this.programRevision) {
+                        this.programScenes = [data.sceneName]
+                        this.notifyChanged()
+                    }
+                    this.reconnectDelay = 1000
+                } catch (error) { this.logRequestError(error) }
+            }
+            if (this.isCurrent(client)) this.scheduleHeartbeat(client)
+        }, heartbeatMs)
+    }
+
+    private async updatePreviewScene(client: OBSWebSocket) {
+        const revision = this.previewRevision
+        const epoch = this.collectionEpoch
+        try {
+            const studio = await this.request(client, 'GetStudioModeEnabled', epoch)
+            const scenes = studio.studioModeEnabled
+                ? [(await this.request(client, 'GetCurrentPreviewScene', epoch)).sceneName] : []
+            if (!this.canRequest(client, epoch) || revision !== this.previewRevision) return
+            this.previewScenes = scenes
+            this.notifyChanged()
+        } catch (error) { this.logRequestError(error) }
+    }
+
+    private updateOutputStates() {
+        const client = this.obs
+        if (!client) return
+        const mode = this.configuration.getLiveMode()
+        const epoch = this.collectionEpoch
+        // Never query FFmpeg/output status in always mode (previous crash mitigation).
+        if (mode === 'stream' || mode === 'streamOrRecord') {
+            const revision = this.streamRevision
+            void this.request(client, 'GetStreamStatus').then(data => {
+                if (!this.canRequest(client, epoch) || revision !== this.streamRevision) return
                 this.isStreaming = data.outputActive
                 this.notifyChanged()
-            }).catch(err => {
-                console.error(err)
-            })
+            }).catch(error => this.logRequestError(error))
         }
-        if (liveMode === "record" || liveMode === "streamOrRecord") {
-            this.obs?.call("GetRecordStatus").then(data => {
+        if (mode === 'record' || mode === 'streamOrRecord') {
+            const revision = this.recordRevision
+            void this.request(client, 'GetRecordStatus').then(data => {
+                if (!this.canRequest(client, epoch) || revision !== this.recordRevision) return
                 this.isRecording = data.outputActive && !data.outputPaused
                 this.notifyChanged()
-            }).catch(err => {
-                console.error(err)
+            }).catch(error => this.logRequestError(error))
+        }
+    }
+
+    private logRequestError(error: any) {
+        if (!(error instanceof StaleObsRequest)) console.error('OBS request failed:', error?.message || error)
+    }
+
+    private scheduleSceneRefresh(delay = 50) {
+        this.refreshDirty = true
+        if (this.refreshTimer || this.sceneRefresh) return
+        this.refreshTimer = setTimeout(() => {
+            this.refreshTimer = null
+            const client = this.obs
+            if (!client || !this.canRequest(client)) return
+            this.refreshDirty = false
+            const task = this.updateScenes(client)
+            this.sceneRefresh = task
+            let retryDelay = 100
+            void task.catch(error => {
+                this.logRequestError(error)
+                retryDelay = 1000
+                if (this.canRequest(client)) {
+                    if (++this.sceneFailures >= 3) this.failConnection(client, error)
+                    else this.refreshDirty = true
+                }
+            }).finally(() => {
+                if (this.sceneRefresh !== task) return
+                this.sceneRefresh = null
+                if (this.refreshDirty && this.canRequest(client)) this.scheduleSceneRefresh(retryDelay)
             })
-        }
+        }, delay)
     }
-    private updateScenes() {
-        this.obs?.call("GetSceneList").then(async data => {
-            // console.debug("GetSceneList", data)
 
-            const sceneNames = data.scenes.map(scene => String(scene.sceneName))
-            await this.updateVisibleSources(sceneNames)
-            const sourceChannels = this.selectableSources
-                .filter(sourceName => !sceneNames.includes(sourceName))
-                .map(sourceName => {
-                    const category = this.selectableSourceCategories[sourceName] || "source"
-                    const label = category === "group" ? `Group: ${sourceName}` : `Source: ${sourceName}`
-                    return new Channel(this.createSourceChannelId(sourceName), label, category)
-                })
-            this.communicator.notifyChannels([
-                ...sceneNames.map(sceneName => new Channel(sceneName, `Scene: ${sceneName}`, "scene")),
-                ...sourceChannels,
-            ])
-
-            if (data.currentProgramSceneName) {
-                this.notifyProgramChanged([data.currentProgramSceneName])
+    private async updateScenes(client: OBSWebSocket) {
+        const revision = this.programRevision
+        const sourceRevision = this.sourceRevision
+        const epoch = this.collectionEpoch
+        const data = await this.request(client, 'GetSceneList')
+        const names = data.scenes.map(scene => String(scene.sceneName))
+        const sources = new Set<string>()
+        const categories: {[name: string]: SourceCategory} = Object.create(null)
+        const visible: {[name: string]: string[]} = Object.create(null)
+        const cache = new Map<string, any[]>()
+        // Query each scene/group only once per refresh, sequentially to bound OBS load.
+        const collect = async (name: string, group: boolean, path: Set<string>): Promise<string[]> => {
+            if (path.has(name)) return []
+            if (path.size >= 64) throw new Error('OBS nested scene depth exceeds 64.')
+            const key = `${group}:${name}`
+            let items = cache.get(key)
+            if (!items) {
+                items = (await this.request(client, group ? 'GetGroupSceneItemList' : 'GetSceneItemList', epoch, {sceneName: name})).sceneItems
+                cache.set(key, items)
             }
-        }).catch(err => {
-            console.error(err)
-            // @TODO
-        })
-    }
-    private createSourceChannelId(sourceName: string) {
-        return `${obsSourceChannelPrefix}${sourceName}`
-    }
-
-    private isNestedSceneOrGroup(item: any) {
-        return item.sourceType === "OBS_SOURCE_TYPE_SCENE" ||
-            item.sourceKind === "scene" ||
-            item.sourceKind === "group" ||
-            item.type === "scene"
-    }
-
-    private isItemEnabled(item: any) {
-        if (item.sceneItemEnabled !== undefined) { return item.sceneItemEnabled === true }
-        if (item.render !== undefined) { return item.render === true }
-        return true
-    }
-
-    private async getSceneItems(sceneName: string): Promise<any[]> {
-        if (!this.obs) { return [] }
-
-        try {
-            const data = await this.obs.call("GetSceneItemList", {sceneName})
-            return data.sceneItems || []
-        } catch (sceneErr) {
-            try {
-                const data = await this.obs.call("GetGroupSceneItemList", {sceneName})
-                return data.sceneItems || []
-            } catch (groupErr) {
-                console.error(sceneErr)
-                return []
+            const nextPath = new Set(path).add(name)
+            const result: string[] = []
+            for (const item of items) {
+                const source = String(item.sourceName || '')
+                if (!source) continue
+                const isGroup = item.isGroup === true || item.sourceKind === 'group'
+                const nested = isGroup || item.sourceType === 'OBS_SOURCE_TYPE_SCENE' || item.sourceKind === 'scene'
+                sources.add(source)
+                categories[source] = isGroup ? 'group' : 'source'
+                const children = nested ? await collect(source, isGroup, nextPath) : []
+                if (item.sceneItemEnabled === false) continue
+                result.push(`${obsSourceChannelPrefix}${source}`)
+                if (nested) result.push(source, ...children)
             }
+            return Array.from(new Set(result))
         }
-    }
-
-    private getSourceCategory(item: any): SourceCategory {
-        if (item.sourceKind === "group") { return "group" }
-        return "source"
-    }
-
-    private async collectVisibleSources(sceneName: string, selectableSources: Set<string>, sourceCategories: {[sourceName: string]: SourceCategory}, visited: Set<string>): Promise<string[]> {
-        if (visited.has(sceneName)) { return [] }
-        visited.add(sceneName)
-
-        const visibleSources: string[] = []
-        const sceneItems = await this.getSceneItems(sceneName)
-
-        for (const item of sceneItems) {
-            const sourceName = item.sourceName || item.name
-            if (!sourceName) { continue }
-
-            const sourceNameString = String(sourceName)
-            selectableSources.add(sourceNameString)
-            sourceCategories[sourceNameString] = this.getSourceCategory(item)
-
-            if (!this.isItemEnabled(item)) { continue }
-
-            visibleSources.push(this.createSourceChannelId(sourceNameString))
-
-            if (this.isNestedSceneOrGroup(item)) {
-                visibleSources.push(sourceNameString)
-                visibleSources.push(...await this.collectVisibleSources(sourceNameString, selectableSources, sourceCategories, new Set(visited)))
-            }
-        }
-
-        return Array.from(new Set(visibleSources))
-    }
-
-    private async updateVisibleSources(sceneNames: string[]) {
-        this.visibleSourcesByScene = {}
-        const selectableSources = new Set<string>()
-        const sourceCategories: {[sourceName: string]: SourceCategory} = {}
-        if (!this.obs) { return }
-
-        await Promise.all(sceneNames.map(async sceneName => {
-            this.visibleSourcesByScene[sceneName] = await this.collectVisibleSources(sceneName, selectableSources, sourceCategories, new Set())
-        }))
-
-        this.selectableSources = Array.from(selectableSources).sort((a, b) => a.localeCompare(b))
-        this.selectableSourceCategories = sourceCategories
-    }
-    private notifyProgramChanged(scenes: string[]) {
-        this.programScenes = scenes
+        for (const name of names) visible[name] = await collect(name, false, new Set())
+        if (!this.canRequest(client, epoch) || sourceRevision !== this.sourceRevision) return
+        // Publish a complete snapshot; never erase the cache while reads are in flight.
+        this.visibleSourcesByScene = visible
+        this.selectableSources = Array.from(sources).sort((a, b) => a.localeCompare(b))
+        this.selectableSourceCategories = categories
+        this.sceneFailures = 0
+        this.communicator.notifyChannels([
+            ...names.map(name => new Channel(name, `Scene: ${name}`, 'scene')),
+            ...this.selectableSources.filter(name => !names.includes(name)).map(name => {
+                const category = categories[name]
+                return new Channel(`${obsSourceChannelPrefix}${name}`, `${category === 'group' ? 'Group' : 'Source'}: ${name}`, category)
+            }),
+        ])
+        if (revision === this.programRevision && data.currentProgramSceneName) this.programScenes = [data.currentProgramSceneName]
+        this.reconnectDelay = 1000
         this.notifyChanged()
-    }
-    private notifyPreviewChanged(scenes: string[]) {
-        this.previewScenes = scenes
-        this.notifyChanged()
-    }
-
-    private shouldProgramBeShownAsPreview(): boolean {
-        const mode = this.configuration.getLiveMode()
-        if (mode === "always") {
-            return false
-        } else if (mode === "record") {
-            return !this.isRecording
-        } else if(mode === "stream") {
-            return !this.isStreaming
-        } else if(mode === "streamOrRecord") {
-            return !this.isStreaming && !this.isRecording
-        } else {
-            ((_: never) => {})(mode) // if typescript complains about this, we forgot a case
-        }
     }
 
     private notifyChanged() {
-        let programs: string[] = []
-        
-        this.programScenes.forEach(scene => {
-            programs.push(scene)
-            programs.push(...(this.visibleSourcesByScene[scene] || []))
-        })
-
-        let previews: string[] = []
-        if (this.shouldProgramBeShownAsPreview()) {
-            previews = programs
-            programs = []
-        } else {
-            this.previewScenes.forEach(scene => {
-                previews.push(scene)
-                previews.push(...(this.visibleSourcesByScene[scene] || []))
-            })
-        }
-        
-        
-
-        this.communicator.notifyProgramPreviewChanged(programs, previews)
+        if (!this.connected || this.collectionChanging || this.stopped) return
+        const expand = (scenes: string[]) => Array.from(new Set(scenes.flatMap(scene => [scene, ...(this.visibleSourcesByScene[scene] || [])])))
+        const programs = expand(this.programScenes)
+        const mode = this.configuration.getLiveMode()
+        const previewOnly = mode === 'stream' ? !this.isStreaming : mode === 'record' ? !this.isRecording
+            : mode === 'streamOrRecord' ? !this.isStreaming && !this.isRecording : false
+        this.communicator.notifyProgramPreviewChanged(previewOnly ? [] : programs, previewOnly ? programs : expand(this.previewScenes))
     }
 
     disconnect() {
-        if (this.reconnectTimeout) { 
-            clearTimeout(this.reconnectTimeout)
-        }
-        if (this.obs) {
-            this.obs.removeAllListeners('ConnectionClosed')
-            this.obs.disconnect()
+        this.stopped = true
+        const client = this.obs
+        this.obs = null
+        this.connected = false
+        if (this.reconnectTimeout) clearTimeout(this.reconnectTimeout)
+        if (this.connectTimer) clearTimeout(this.connectTimer)
+        if (this.heartbeatTimer) clearTimeout(this.heartbeatTimer)
+        this.reconnectTimeout = this.connectTimer = this.heartbeatTimer = null
+        this.cancelRequests()
+        this.clearRefresh()
+        this.resetScenes()
+        this.communicator.notifyMixerIsDisconnected()
+        if (client) {
+            client.removeAllListeners()
+            void client.disconnect().catch(() => {})
         }
     }
 
-    isConnected() {
-        return this.obs !== undefined && this.connected
-    }
-    static readonly ID: "obs" = "obs"
+    isConnected() { return this.connected }
+    static readonly ID: 'obs' = 'obs'
 }
 
 export default ObsConnector

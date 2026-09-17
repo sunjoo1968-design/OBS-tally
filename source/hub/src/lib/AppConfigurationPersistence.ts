@@ -1,6 +1,7 @@
 import { AppConfiguration } from "./AppConfiguration";
 import fs from 'fs'
 import os from 'os'
+import { randomBytes } from 'crypto'
 import ServerEventEmitter from "./ServerEventEmitter";
 
 class AppConfigurationPersistence {
@@ -8,6 +9,7 @@ class AppConfigurationPersistence {
     fileName: string
     emitter: ServerEventEmitter
     saveTimeout?: NodeJS.Timeout
+    private saveQueue: Promise<void> = Promise.resolve()
 
     constructor(configuration: AppConfiguration, emitter: ServerEventEmitter, fileName?: string) {
         this.configuration = configuration
@@ -54,7 +56,10 @@ class AppConfigurationPersistence {
     /* don't save instantly, but wait a bit to prevent too many writes in short succession */
     private scheduleSave() {
         if (this.saveTimeout) { return }
-        this.saveTimeout = setTimeout(this.save.bind(this), AppConfigurationPersistence.saveDelay)
+        this.saveTimeout = setTimeout(() => {
+            // A failed disk write must not become an unhandled rejection and stop the Hub.
+            void this.save().catch(() => {})
+        }, AppConfigurationPersistence.saveDelay)
     }
 
     async save() {
@@ -64,22 +69,34 @@ class AppConfigurationPersistence {
             this.saveTimeout = undefined
         }
 
-        return new Promise((resolve, reject) => {
-            const data: object = this.configuration.toJson()
-            const dataToWrite = Object.assign({
-                _warning: "This file was automatically generated.",
-                _warning2: "Do not edit it while the hub is running. Your changes will be lost."
-            }, data)
-            
-            fs.writeFile(this.fileName, JSON.stringify(dataToWrite, null, '\t'), err => {
-                if(err) {
-                    console.error(`error when saving file ${this.fileName}: ${err}`)
-                    reject(err)
-                } else {
-                    resolve(null)
-                }
-            })
-        })
+        const dataToWrite = Object.assign({
+            _warning: "This file was automatically generated.",
+            _warning2: "Do not edit it while the hub is running. Your changes will be lost."
+        }, this.configuration.toJson())
+        const snapshot = JSON.stringify(dataToWrite, null, '\t')
+        const task = this.saveQueue.then(() => this.writeAtomically(snapshot))
+        this.saveQueue = task.catch(() => {})
+        return task
+    }
+
+    private async writeAtomically(snapshot: string) {
+        const temporary = `${this.fileName}.${process.pid}.${randomBytes(6).toString('hex')}.tmp`
+        let handle: fs.promises.FileHandle | undefined
+        try {
+            // Keep the last valid config until the complete replacement has been flushed.
+            handle = await fs.promises.open(temporary, 'wx', 0o600)
+            await handle.writeFile(snapshot, 'utf8')
+            await handle.sync()
+            await handle.close()
+            handle = undefined
+            await fs.promises.rename(temporary, this.fileName)
+        } catch (error) {
+            console.error(`error when saving file ${this.fileName}: ${error}`)
+            throw error
+        } finally {
+            if (handle) await handle.close().catch(() => {})
+            await fs.promises.unlink(temporary).catch(() => {})
+        }
     }
 
     private static readonly saveDelay = 500 //ms

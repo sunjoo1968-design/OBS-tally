@@ -6,6 +6,10 @@
 #include <Adafruit_SSD1306.h>
 #include <Adafruit_NeoPixel.h>
 #include <EEPROM.h>
+#include "ListenerProtocol.h"
+
+using vtally::Rgb;
+using vtally::TallyCommand;
 
 /*
   vTally UDP listener for NodeMCU Lua WiFi V3 ESP8266.
@@ -59,6 +63,7 @@
 #define LOCAL_UDP_PORT 7412
 #define REGISTER_INTERVAL_MS 500
 #define HUB_TIMEOUT_MS 3000
+#define VTALLY_FIRMWARE_VERSION "1.5.10"
 
 struct Config {
   uint32_t magic;
@@ -85,11 +90,9 @@ const char FW_DEFAULT_REAR_BRIGHTNESS[] = "VTALLY_REAR_BRIGHTNESS___";
 const char FW_DEFAULT_IDLE_BRIGHTNESS[] = "VTALLY_IDLE_BRIGHTNESS___";
 const char FW_DEFAULT_IDLE_COLOR[] = "VTALLY_IDLE_COLOR";
 
-struct Rgb {
-  uint8_t r;
-  uint8_t g;
-  uint8_t b;
-};
+struct ConfigChecksum { uint32_t magic; uint32_t crc; };
+const uint32_t checksumMagic = 0x56544343UL;
+static_assert(sizeof(Config) + sizeof(ConfigChecksum) <= EEPROM_SIZE, "Config exceeds EEPROM");
 
 Config config;
 
@@ -110,6 +113,16 @@ WiFiManagerParameter paramIdleColor("vt_iclr", "Idle Color G/B/R/Y/W", "", 8);
 bool shouldSaveConfig = false;
 bool udpReady = false;
 bool hubSeen = false;
+bool displayReady = false;
+bool oledDirty = true;
+bool hubAddressValid = false;
+IPAddress hubAddress;
+IPAddress wifiAddress;
+uint32_t udpRetryTimer = 0;
+uint32_t flashTimer = 0;
+uint32_t lastFrontColor = 0;
+uint32_t lastRearColor = 0;
+bool pixelsValid = false;
 
 unsigned long registerTimer = 0;
 unsigned long oledTimer = 0;
@@ -125,7 +138,7 @@ uint8_t flashStep = 0;
 
 Rgb operatorColor = {0, 0, 0};
 Rgb stageColor = {0, 0, 0};
-String lastCommand = "";
+TallyCommand lastCommand = {};
 
 void copyString(char *dest, size_t destSize, const String &value) {
   value.toCharArray(dest, destSize);
@@ -183,16 +196,35 @@ void setDefaultConfig() {
 void loadConfig() {
   EEPROM.begin(EEPROM_SIZE);
   EEPROM.get(0, config);
-
-  if (config.magic != CONFIG_MAGIC) {
+  ConfigChecksum checksum = {};
+  EEPROM.get(sizeof(Config), checksum);
+  const bool validStrings =
+    memchr(config.wifiSsid, 0, sizeof(config.wifiSsid)) &&
+    memchr(config.wifiPassword, 0, sizeof(config.wifiPassword)) &&
+    memchr(config.setupApName, 0, sizeof(config.setupApName)) &&
+    memchr(config.hubIp, 0, sizeof(config.hubIp)) &&
+    memchr(config.tallyName, 0, sizeof(config.tallyName)) &&
+    memchr(config.idleColor, 0, sizeof(config.idleColor));
+  const bool legacyChecksum = checksum.magic == 0xFFFFFFFFUL && checksum.crc == 0xFFFFFFFFUL;
+  const bool checksumValid = legacyChecksum || (checksum.magic == checksumMagic &&
+    checksum.crc == vtally::crc32(reinterpret_cast<const uint8_t *>(&config), sizeof(config)));
+  IPAddress address;
+  if (config.magic != CONFIG_MAGIC || !validStrings || !checksumValid || config.hubPort == 0 ||
+      config.setupApName[0] == 0 || config.tallyName[0] == 0 ||
+      strchr(config.tallyName, '"') || strchr(config.tallyName, '\r') || strchr(config.tallyName, '\n') ||
+      (config.hubIp[0] != 0 && !address.fromString(config.hubIp))) {
     setDefaultConfig();
+    Serial.println(F("Using firmware defaults (missing/invalid EEPROM config)"));
   }
+  hubAddressValid = hubAddress.fromString(config.hubIp);
 }
 
 void saveConfig() {
   config.magic = CONFIG_MAGIC;
   EEPROM.put(0, config);
-  EEPROM.commit();
+  const ConfigChecksum checksum = {checksumMagic, vtally::crc32(reinterpret_cast<const uint8_t *>(&config), sizeof(config))};
+  EEPROM.put(sizeof(Config), checksum);
+  if (!EEPROM.commit()) Serial.println(F("EEPROM commit failed"));
 }
 
 uint32_t scaledColor(Rgb color, uint8_t brightness) {
@@ -219,6 +251,10 @@ void showColors(Rgb stage, Rgb op) {
   uint32_t frontColor = scaledColor(stage, config.frontBrightness);
   uint32_t rearColor = scaledColor(op, config.rearBrightness);
 
+  if (pixelsValid && frontColor == lastFrontColor && rearColor == lastRearColor) return;
+  lastFrontColor = frontColor;
+  lastRearColor = rearColor;
+  pixelsValid = true;
   for (uint8_t i = 0; i < FRONT_LEDS; i++) {
     pixels.setPixelColor(i, frontColor);
   }
@@ -237,6 +273,10 @@ void showOff() {
 void showIdle() {
   uint32_t offColor = pixels.Color(0, 0, 0);
   uint32_t idleColor = scaledColor(parseIdleColor(), config.idleBrightness);
+  if (pixelsValid && lastFrontColor == offColor && lastRearColor == idleColor) return;
+  lastFrontColor = offColor;
+  lastRearColor = idleColor;
+  pixelsValid = true;
 
   for (uint8_t i = 0; i < FRONT_LEDS; i++) {
     pixels.setPixelColor(i, offColor);
@@ -249,16 +289,12 @@ void showIdle() {
   pixels.show();
 }
 
-bool isBlack(Rgb color) {
-  return color.r == 0 && color.g == 0 && color.b == 0;
-}
-
 bool isProgramColor(Rgb color) {
-  return color.r > 5 && color.r > (color.g * 2) && color.r > (color.b * 2);
+  return vtally::program(color);
 }
 
 bool isPreviewColor(Rgb color) {
-  return color.g > 5 && color.g > (color.r * 2) && color.g > (color.b * 2);
+  return vtally::preview(color);
 }
 
 bool isProgramState() {
@@ -270,15 +306,10 @@ bool isPreviewState() {
 }
 
 bool isIdleState() {
-  return !isProgramState() && !isPreviewState();
+  return vtally::idle(lastCommand);
 }
 
 void applyTallyOutput() {
-  if (isIdleState()) {
-    showIdle();
-    return;
-  }
-
   if (flashPattern > 0 && flashStepDuration > 0) {
     bool on = (flashPattern & (0x80 >> flashStep)) != 0;
     if (on) {
@@ -286,6 +317,11 @@ void applyTallyOutput() {
     } else {
       showOff();
     }
+    return;
+  }
+
+  if (isIdleState()) {
+    showIdle();
     return;
   }
 
@@ -326,20 +362,25 @@ String shortTallyName() {
   return name;
 }
 
-String stateLabel() {
+const char *stateLabel() {
   if (WiFi.status() != WL_CONNECTED) return "NO WIFI";
   if (!udpReady) return "NO UDP";
   if (!hubSeen) return "WAIT HUB";
+  if (flashPattern && operatorColor.r == operatorColor.g && operatorColor.g == operatorColor.b) return "IDENTIFY";
+  if (flashPattern && operatorColor.r == 0 && operatorColor.g == 0 && operatorColor.b > 0) return "UNKNOWN";
 
   if (isProgramState()) return "PROGRAM";
   if (isPreviewState()) return "PREVIEW";
   if (isIdleState()) {
     return "IDLE";
   }
-  return "IDLE";
+  return "COLOR";
 }
 
 void updateOLED() {
+  oledDirty = false;
+  oledTimer = millis();
+  if (!displayReady) return;
   display.clearDisplay();
   display.setTextColor(SSD1306_WHITE);
   display.setTextSize(1);
@@ -373,13 +414,15 @@ void updateOLED() {
 }
 
 void showSetupScreen() {
+  if (!displayReady) return;
   display.clearDisplay();
   display.setTextColor(SSD1306_WHITE);
   display.setTextSize(1);
   display.setCursor(0, 0);
   display.println(F("SETUP MODE"));
   display.println();
-  display.println(F("SSID: TALLY-SETUP"));
+  display.print(F("SSID: "));
+  display.println(config.setupApName);
   display.println(F("OPEN: 192.168.4.1"));
   display.println();
   display.println(F("Set Hub IP, port,"));
@@ -388,18 +431,21 @@ void showSetupScreen() {
 }
 
 void showBootScreen() {
+  if (!displayReady) return;
   display.clearDisplay();
   display.setTextColor(SSD1306_WHITE);
   display.setTextSize(1);
   display.setCursor(0, 0);
   display.println(F("vTally Listener"));
   display.println(F("ESP8266 NodeMCU"));
+  display.println(F("V" VTALLY_FIRMWARE_VERSION));
   display.println();
   display.println(F("Booting..."));
   display.display();
 }
 
 void showButtonMessage(const __FlashStringHelper *line1, const __FlashStringHelper *line2) {
+  if (!displayReady) return;
   display.clearDisplay();
   display.setTextColor(SSD1306_WHITE);
   display.setTextSize(1);
@@ -412,10 +458,11 @@ void showButtonMessage(const __FlashStringHelper *line1, const __FlashStringHelp
 }
 
 void showButtonHoldStatus(unsigned long held) {
+  if (!displayReady) return;
   if (millis() - buttonDisplayTimer < 250) return;
   buttonDisplayTimer = millis();
 
-  uint8_t progress = min((unsigned long)100, (held * 100UL) / FACTORY_RESET_HOLD_MS);
+  uint8_t progress = static_cast<uint8_t>(min((unsigned long)100, (held * 100UL) / FACTORY_RESET_HOLD_MS));
 
   display.clearDisplay();
   display.setTextColor(SSD1306_WHITE);
@@ -458,9 +505,13 @@ void factoryReset() {
 }
 
 void startConfigPortal() {
+  if (wifiManager.getConfigPortalActive()) return;
+  // Applying new WiFi settings can still block inside WiFiManager; do not freeze red.
+  invalidateHub();
   showButtonMessage(F("CONFIG PORTAL"), F("Opening AP..."));
+  wifiManager.setConfigPortalBlocking(false);
   wifiManager.startConfigPortal(config.setupApName);
-  updateOLED();
+  oledDirty = true;
 }
 
 void checkWifiResetButton() {
@@ -500,88 +551,46 @@ void animateStatus() {
   }
 }
 
-bool parseRgbAt(const String &text, int start, Rgb &out) {
-  if (start < 0 || start + 12 > text.length()) return false;
-
-  String r = text.substring(start + 1, start + 4);
-  String g = text.substring(start + 5, start + 8);
-  String b = text.substring(start + 9, start + 12);
-
-  if (text.charAt(start + 4) != '/' || text.charAt(start + 8) != '/') return false;
-
-  out.r = (uint8_t)constrain(r.toInt(), 0, 255);
-  out.g = (uint8_t)constrain(g.toInt(), 0, 255);
-  out.b = (uint8_t)constrain(b.toInt(), 0, 255);
-  return true;
-}
-
-void parseFlash(const String &cmd) {
-  flashPattern = 0;
-  flashStepDuration = 0;
-  flashStep = 0;
-
-  int hexPos = cmd.indexOf("0x");
-  if (hexPos < 0) return;
-
-  String patternText = cmd.substring(hexPos + 2, hexPos + 4);
-  char *endPtr = nullptr;
-  flashPattern = (uint8_t)strtoul(patternText.c_str(), &endPtr, 16);
-
-  String durationText = cmd.substring(hexPos + 4);
-  durationText.trim();
-  flashStepDuration = (uint16_t)durationText.toInt();
-}
-
-void handleHubCommand(const String &cmd) {
-  Rgb newOperator = {0, 0, 0};
-  Rgb newStage = {0, 0, 0};
-
-  int opPos = cmd.indexOf('O');
-  int stPos = cmd.indexOf('S');
-
-  if (!parseRgbAt(cmd, opPos, newOperator)) return;
-  if (!parseRgbAt(cmd, stPos, newStage)) return;
-
-  operatorColor = newOperator;
-  stageColor = newStage;
-  parseFlash(cmd);
-
+void handleHubCommand(const char *data, size_t length) {
+  TallyCommand command;
+  if (!vtally::parseCommand(data, length, command)) return;
+  const bool changed = !hubSeen || !vtally::equal(lastCommand, command);
   hubSeen = true;
   lastHubPacketAt = millis();
-  lastCommand = cmd;
-
+  if (!changed) return;
+  lastCommand = command;
+  operatorColor = command.op;
+  stageColor = command.stage;
+  flashPattern = command.pattern;
+  flashStepDuration = command.duration;
+  flashStep = 0;
+  flashTimer = millis();
   applyTallyOutput();
-  updateOLED();
+  oledDirty = true;
 }
 
 void sendRegistration() {
-  if (WiFi.status() != WL_CONNECTED || strlen(config.hubIp) == 0) return;
-
-  String msg = "tally-ho \"";
-  msg += String(config.tallyName);
-  msg += "\"";
-
-  udp.beginPacket(config.hubIp, config.hubPort);
-  udp.write((const uint8_t *)msg.c_str(), msg.length());
-  udp.endPacket();
+  if (!udpReady || WiFi.status() != WL_CONNECTED || !hubAddressValid) return;
+  char msg[48];
+  const int length = snprintf(msg, sizeof(msg), "tally-ho \"%s\"", config.tallyName);
+  if (length <= 0 || length >= static_cast<int>(sizeof(msg))) return;
+  if (!udp.beginPacket(hubAddress, config.hubPort)) return;
+  udp.write(reinterpret_cast<const uint8_t *>(msg), length);
+  if (!udp.endPacket()) Serial.println(F("Registration send failed"));
 }
 
 void pollUdp() {
-  int packetSize = udp.parsePacket();
-  if (packetSize <= 0) return;
-
-  String packet;
-  packet.reserve(packetSize);
-
-  while (udp.available()) {
-    packet += (char)udp.read();
-  }
-
-  packet.trim();
-  if (packet.length() > 0) {
-    Serial.print(F("hub: "));
-    Serial.println(packet);
-    handleHubCommand(packet);
+  // Bound processing time and allocation even under malformed/foreign traffic.
+  for (uint8_t count = 0; count < 8; count++) {
+    const int size = udp.parsePacket();
+    if (size <= 0) return;
+    if (!hubAddressValid || udp.remoteIP() != hubAddress || udp.remotePort() != config.hubPort || size > 64) {
+      udp.flush();
+      continue;
+    }
+    char data[64];
+    const int length = udp.read(reinterpret_cast<uint8_t *>(data), sizeof(data));
+    if (length == size) handleHubCommand(data, length);
   }
 }
 
@@ -603,13 +612,17 @@ void updateConfigFromPortal() {
   idleColorValue.trim();
   idleColorValue.toUpperCase();
 
-  if (hubValue.length() > 0) copyString(config.hubIp, sizeof(config.hubIp), hubValue);
-  if (portValue.toInt() > 0) config.hubPort = (uint16_t)portValue.toInt();
-  if (nameValue.length() > 0) copyString(config.tallyName, sizeof(config.tallyName), nameValue);
-
-  config.frontBrightness = clampBrightness(frontValue.toInt(), config.frontBrightness);
-  config.rearBrightness = clampBrightness(rearValue.toInt(), config.rearBrightness);
-  config.idleBrightness = clampBrightness(idleBrightnessValue.toInt(), config.idleBrightness);
+  IPAddress parsedIp;
+  const bool hubChanged = hubValue.length() > 0 && parsedIp.fromString(hubValue) && hubValue != config.hubIp;
+  if (hubChanged) copyString(config.hubIp, sizeof(config.hubIp), hubValue);
+  uint32_t parsed;
+  const uint16_t previousPort = config.hubPort;
+  if (vtally::decimal(portValue.c_str(), portValue.length(), 65535, parsed) && parsed > 0) config.hubPort = static_cast<uint16_t>(parsed);
+  const bool nameChanged = nameValue.length() > 0 && nameValue.indexOf('"') < 0 && nameValue.indexOf('\r') < 0 && nameValue.indexOf('\n') < 0 && nameValue != config.tallyName;
+  if (nameChanged) copyString(config.tallyName, sizeof(config.tallyName), nameValue);
+  if (vtally::decimal(frontValue.c_str(), frontValue.length(), 255, parsed)) config.frontBrightness = static_cast<uint8_t>(parsed);
+  if (vtally::decimal(rearValue.c_str(), rearValue.length(), 255, parsed)) config.rearBrightness = static_cast<uint8_t>(parsed);
+  if (vtally::decimal(idleBrightnessValue.c_str(), idleBrightnessValue.length(), 255, parsed)) config.idleBrightness = static_cast<uint8_t>(parsed);
 
   if (
     idleColorValue == "R" || idleColorValue == "RED" ||
@@ -622,6 +635,12 @@ void updateConfigFromPortal() {
   }
 
   saveConfig();
+  hubAddressValid = hubAddress.fromString(config.hubIp);
+  if (hubChanged || previousPort != config.hubPort || nameChanged) {
+    invalidateHub();
+    registerTimer = millis() - REGISTER_INTERVAL_MS;
+  } else if (hubSeen) applyTallyOutput();
+  oledDirty = true;
 
   Serial.print(F("Saved Hub: "));
   Serial.print(config.hubIp);
@@ -649,6 +668,14 @@ void setupWifi() {
   paramIdleColor.setValue(config.idleColor, 8);
 
   wifiManager.setSaveConfigCallback(saveConfigCallback);
+  wifiManager.setPreSaveConfigCallback([]() {
+    udp.stop();
+    udpReady = false;
+    invalidateHub();
+    udpRetryTimer = millis() - 1000;
+  });
+  wifiManager.setConnectTimeout(10);
+  wifiManager.setSaveConnectTimeout(10);
   wifiManager.setSaveParamsCallback(updateConfigFromPortal);
   wifiManager.addParameter(&paramHubIp);
   wifiManager.addParameter(&paramHubPort);
@@ -659,6 +686,7 @@ void setupWifi() {
   wifiManager.addParameter(&paramIdleColor);
 
   WiFi.mode(WIFI_STA);
+  WiFi.setAutoReconnect(true);
   WiFi.setSleepMode(WIFI_NONE_SLEEP);
 
   wifiManager.setAPCallback([](WiFiManager *) {
@@ -685,16 +713,57 @@ void setupWifi() {
     ESP.restart();
   }
 
-  updateConfigFromPortal();
+  if (shouldSaveConfig) {
+    copyString(config.wifiSsid, sizeof(config.wifiSsid), WiFi.SSID());
+    copyString(config.wifiPassword, sizeof(config.wifiPassword), WiFi.psk());
+    saveConfig();
+    shouldSaveConfig = false;
+  }
 }
 
 void setupUdp() {
   udpReady = udp.begin(LOCAL_UDP_PORT);
   if (udpReady) {
+    wifiAddress = WiFi.localIP();
+    registerTimer = millis() - REGISTER_INTERVAL_MS;
     Serial.print(F("UDP local port: "));
     Serial.println(LOCAL_UDP_PORT);
   } else {
     Serial.println(F("UDP begin failed"));
+  }
+}
+
+void invalidateHub() {
+  hubSeen = false;
+  flashPattern = 0;
+  flashStepDuration = 0;
+  operatorColor = stageColor = {0, 0, 0};
+  lastCommand = {};
+  showOff();
+  oledDirty = true;
+}
+
+void maintainNetwork() {
+  const uint32_t now = millis();
+  if (WiFi.status() != WL_CONNECTED) {
+    if (udpReady || hubSeen) {
+      udp.stop();
+      udpReady = false;
+      invalidateHub();
+    }
+    udpRetryTimer = now - 1000;
+    return;
+  }
+  if (udpReady && WiFi.localIP() != wifiAddress) {
+    udp.stop();
+    udpReady = false;
+    invalidateHub();
+    udpRetryTimer = now - 1000;
+  }
+  if (!udpReady && now - udpRetryTimer >= 1000) {
+    udpRetryTimer = now;
+    setupUdp();
+    oledDirty = true;
   }
 }
 
@@ -707,9 +776,8 @@ void setup() {
   loadConfig();
 
   Wire.begin(I2C_SDA_PIN, I2C_SCL_PIN);
-  display.begin(SSD1306_SWITCHCAPVCC, OLED_ADDR);
-  display.clearDisplay();
-  display.display();
+  displayReady = display.begin(SSD1306_SWITCHCAPVCC, OLED_ADDR);
+  if (!displayReady) Serial.println(F("OLED allocation failed; continuing without display"));
 
   pixels.begin();
   showOff();
@@ -723,32 +791,29 @@ void setup() {
 
 void loop() {
   checkWifiResetButton();
-
-  if (resetWifiButtonStart > 0) {
-    delay(10);
-    return;
+  if (wifiManager.getConfigPortalActive()) wifiManager.process();
+  if (shouldSaveConfig && WiFi.status() == WL_CONNECTED) {
+    copyString(config.wifiSsid, sizeof(config.wifiSsid), WiFi.SSID());
+    copyString(config.wifiPassword, sizeof(config.wifiPassword), WiFi.psk());
+    saveConfig();
+    shouldSaveConfig = false;
   }
+  maintainNetwork();
 
   if (udpReady) {
     pollUdp();
   }
 
-  if (millis() - registerTimer > REGISTER_INTERVAL_MS) {
+  if (millis() - registerTimer >= REGISTER_INTERVAL_MS) {
     registerTimer = millis();
     sendRegistration();
   }
 
   if (hubSeen && millis() - lastHubPacketAt > HUB_TIMEOUT_MS) {
-    hubSeen = false;
-    flashPattern = 0;
-    flashStepDuration = 0;
-    showIdle();
-    updateOLED();
+    invalidateHub();
   }
 
-  if (flashPattern > 0 && flashStepDuration > 0 && millis() - animationTimer > flashStepDuration) {
-    animationTimer = millis();
-    flashStep = (flashStep + 1) % 8;
+  if (hubSeen && flashPattern > 0 && vtally::advanceFlash(millis(), flashStepDuration, flashTimer, flashStep)) {
     applyTallyOutput();
   }
 
@@ -756,8 +821,9 @@ void loop() {
     animateStatus();
   }
 
-  if (millis() - oledTimer > 1000) {
-    oledTimer = millis();
+  if (resetWifiButtonStart == 0 && !wifiManager.getConfigPortalActive() &&
+      (millis() - oledTimer >= 1000 || (oledDirty && millis() - oledTimer >= 100))) {
     updateOLED();
   }
+  delay(1);
 }

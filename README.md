@@ -1,159 +1,78 @@
-# OBS Tally / wifi-vtally
+# OBS Tally v1.5.10
 
-Customized vTally-based tally system for OBS Studio, vMix, ATEM, and ESP8266 wireless tally lights.
+Wireless tally system for OBS Studio, vMix and ATEM, maintained by SunjooAN.
+Portable Windows Hub, current ESP8266/NodeMCU V3 firmware and legacy NodeMCU Lua listeners.
 
-This project is maintained for the SunjooAN portable Windows workflow.
+[한국어 안내](README_KR.md) | [Repository](https://github.com/sunjoo1968-design/OBS-tally)
 
-## Current Version
+## Download and Run
 
-Current maintained package: `v1.5.7`
+- [Windows runtime ZIP](https://github.com/sunjoo1968-design/OBS-tally/releases/download/v1.5.10/OBS-tally-v1.5.10-runtime.zip)
+- [Firmware-only ZIP](https://github.com/sunjoo1968-design/OBS-tally/releases/download/v1.5.10/OBS-tally-v1.5.10-firmware.zip)
+- [Release notes](release/README_v1.5.10.md)
 
-Version `v1.5.7` persists listener channel assignments reliably across Hub and PC restarts while retaining all v1.5.6 behavior.
+Extract the runtime ZIP, run `vtally-web.exe`, and open `http://localhost:3000/`.
+Keep the included `firmware/` directory next to the executable.
+Windows x64 requires no separate Java, Node.js or .NET installation.
+In this workspace, the executable is `release/v1.5.10/vtally-web.exe`.
 
-## Download
+Back up existing `wifi-tally.json` and `vtally-web-options.json` before replacing
+the Hub. Only sample settings are distributed. Use a trusted LAN; do not expose
+the management UI to the internet, and enable OBS WebSocket authentication.
 
-Runtime builds are attached to GitHub Releases.
+## Current Features
 
-[Download OBS-tally-v1.5.7-runtime.zip](https://github.com/sunjoo1968-design/OBS-tally/releases/download/v1.5.7/OBS-tally-v1.5.7-runtime.zip)
+- OBS WebSocket v5 scene/group/source matching, bounded requests, event coalescing and safe collection changes.
+- vMix Mix2 tally only when Mix2 is visible on main PGM/PVW; ATEM support.
+- Multiple channel conditions with AND/OR and persistent listener assignments.
+- Portable tray launcher, web tallies and local-PC firmware management.
+- Current/V3 and legacy listener selection, configurable WiFi/Hub/name/brightness or legacy INI.
+- Enclosure STL models in `3D-Model/`.
 
-After downloading:
+## Listener Stability Patch
 
-1. Extract the zip file.
-2. Run `vtally-web.exe`.
-3. Open `http://localhost:3000/` if the browser does not open automatically.
+Strict UDP format/range/sender checks, valid-packet-only heartbeat updates,
+stable flash phase across keep-alives, correct identify/unknown/color output,
+WiFi/IP/UDP recovery, nonblocking manual setup, EEPROM CRC validation and reduced
+LED/OLED work. Legacy programs also fix timer wrap, reconnect timer accumulation
+and failed log send recursion/loss. Hardware wiring and mixer semantics remain intact.
 
-The runtime folder must keep this structure:
-
-```text
-vtally-web.exe
-firmware/
-  ESP8266_vTally_Listener.bin
-  esptool.exe
-  legacy-nodemcu/
-    nodemcu-3.0-master_20200610-cfe68233-float.bin
-    *.lc
-    init.lua
-README_v1.5.7.md
-```
-
-No Java, Node.js, or .NET runtime installation is required for normal Windows 11 use.
-
-## v1.5.7 Changes
-
-- Fixed listener `channelIds` and `channelMatchMode` not being written to the configuration file after channel assignment.
-- Fixed individual listener settings using the same in-place update path so they are persisted reliably.
-- Added regression tests that require a configuration change event for channel and listener-setting updates.
-- The web header now shows `V1.5.7`.
-
-## v1.5.6 Changes
-
-- Added a `Firmware Target` selector for current v1.5.x ESP8266 listeners and legacy NodeMCU listeners.
-- Legacy NodeMCU listeners can update only `tally-settings.ini` when Hub IP or WiFi settings change.
-- Legacy NodeMCU listeners can also be fully reinstalled with the NodeMCU base firmware and Lua/LC program files.
-- The firmware page automatically fills the Hub PC's preferred LAN IPv4 address and still allows manual editing.
-- Firmware management APIs are restricted to the Hub PC, and concurrent flash requests are rejected.
-- Improved vMix reconnect handling, non-contiguous input numbering, empty input handling, UDP recovery, and long-running log memory use.
-- The current v1.5.x listener firmware path remains the default.
-- The web header now shows `V1.5.6`.
-
-## v1.5.5 Changes
-
-- Mix2 internal PGM/PVW sources no longer affect tally state while the Mix2 input is not visible on main vMix PGM/PVW.
-- If Mix2 is on main PGM, the Mix2 internal PGM source is red and the Mix2 internal PVW source is green.
-- If Mix2 is on main PVW, the Mix2 internal PGM source is green.
-- The web header now shows `V1.5.5`.
-
-## v1.5.0 Changes
-
-- Reduced vMix Mix input XML polling from 1000ms to 250ms.
-- Triggered a rate-limited XML refresh immediately after vMix `TALLY OK` events.
-- Buffered vMix TCP responses before command parsing so fragmented XML is handled safely.
-- Reconnected vMix with a fresh socket instead of reusing a closed socket.
-- Limited `vmix-mix-debug.json` writes to `VTALLY_VMIX_DEBUG=true`.
-- Added `made by SunjooAN` and `V1.5.0` to the web header.
-
-## Main Features
-
-- Portable Windows tray launcher
-- Web UI served at `http://localhost:3000/`
-- OBS WebSocket 5.x support
-- OBS scene, group, and source-based tally matching
-- Multiple tally match conditions with `AND` / `OR`
-- vMix support including Mix2 internal source tally matching
-- ATEM support retained
-- ESP8266 NodeMCU tally listener firmware
-- ESP8266 firmware flashing from the web `FIRMWARE` tab
-- Legacy NodeMCU listener settings upload and full reinstall from the web `FIRMWARE` tab
-- 3D model files for the tally enclosure
+**Install firmware on every listener to apply these patches.** Updating the Hub
+alone does not update boards. The existing flash workflow erases board settings:
+confirm and enter WiFi/Hub/name/INI values first. Legacy settings-only mode does
+not install new programs; use full reinstall for this upgrade.
 
 ## Repository Layout
 
 ```text
-3D-Model/
-  STL enclosure model files
-
-config/
-  wifi-tally.sample.json
-
-release/
-  README files for packaged releases
-
-source/
-  ESP8266_vTally_Listener/
-    Arduino ESP8266 listener source
-
-  Legacy_NodeMCU_Listener/
-    legacy NodeMCU listener firmware, Lua/LC files, upstream source, and tests
-
-  hub/
-    customized vTally hub source
-    Windows tray launcher source
+3D-Model/                         enclosure STL files
+config/wifi-tally.sample.json      clean configuration template
+docs/                             current build and stability reports
+release/README_v1.5.10.md           current release notes
+release/v1.5.10/                   local runtime (not committed)
+scripts/                          listener build and release packaging
+source/ESP8266_vTally_Listener/    current/V3 Arduino source and tests
+source/Legacy_NodeMCU_Listener/    maintained Lua source and tests
+source/hub/                       Hub and Windows tray source
+source/hub/firmware/              canonical flash payloads (Git LFS)
 ```
 
-Runtime executables are attached to GitHub Releases. Firmware assets required for reproducible packaging are stored with Git LFS.
+Only current release artifacts remain in the working tree. Build caches,
+downloaded toolchains and old duplicate sources are removed. Git history and
+previous GitHub releases remain available for recovery.
 
-## Build Notes
+## Build and Validation
 
-Hub source directory:
+See [build instructions](docs/BUILD_v1.5.10.md),
+[OBS stability review](docs/OBS_STABILITY_REVIEW_v1.5.10.md) and
+[listener stability review](docs/LISTENER_STABILITY_REVIEW_v1.5.10.md).
+Hub: 250 tests passed, 1 existing skip; packaged runtime: 5 smoke checks passed.
+Arduino source/hardware mock: 32 assertions; legacy source and compiled programs:
+89 assertions each. Firmware and ZIP checksums validated.
+Physical boards and long-running live broadcasts still require field testing.
 
-```powershell
-cd source\hub
-npm install --legacy-peer-deps
-npm run build:backend
-$env:CI='false'; $env:NODE_OPTIONS='--openssl-legacy-provider'; npm run build:frontend
-```
+## License
 
-After building the frontend, copy the React `build` output into `dist\frontend` before packaging the server.
-
-```powershell
-New-Item -ItemType Directory -Force dist\frontend
-Copy-Item build\* dist\frontend -Recurse -Force
-```
-
-Server executable:
-
-```powershell
-npx pkg dist/server.js --config .pkgrc.json --targets node18-win-x64 --output portable\vtally-server.exe
-```
-
-Windows tray launcher:
-
-```powershell
-dotnet publish tray-launcher\VtallyTray.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:EnableCompressionInSingleFile=true -o portable\single-build
-```
-
-## Validation
-
-v1.5.7 was validated with:
-
-```powershell
-npm run build:backend
-$env:CI='true'; npm test -- --watchAll=false --runInBand TallyContainer VmixConnector
-$env:CI='false'; $env:NODE_OPTIONS='--openssl-legacy-provider'; npm run build:frontend
-```
-
-The packaged `release\vtally-web.exe` was also launched and checked at `http://localhost:3000/`.
-
-## License and upstream
-
-This project is based on the MIT-licensed `wifi-tally` project by dev at xopn.de. The original copyright and license are preserved in [LICENSE](LICENSE). Legacy upstream Lua source and tests are retained under `source/Legacy_NodeMCU_Listener/upstream-source`.
+Based on the MIT-licensed wifi-tally project, Copyright (c) 2020 dev at xopn.de.
+Original copyright and license are preserved in [LICENSE](LICENSE).
+See [legacy attribution](source/Legacy_NodeMCU_Listener/UPSTREAM.md).
